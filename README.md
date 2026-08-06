@@ -79,20 +79,34 @@ Status is excluded from the general update on purpose: it's the core interaction
 
 Prereqs: .NET 8 SDK (or newer — projects set `RollForward`), Node 20+.
 
+The API and client are two separate processes — run each in its own terminal, at the same time.
+
+**Terminal 1 — API** (http://localhost:5199, Swagger UI at `/swagger`):
+
 ```bash
-# API — http://localhost:5199 (Swagger UI at /swagger)
 cd api/CareerConnect.Api
 dotnet run
 ```
 
+**Terminal 2 — client** (http://localhost:5173, proxies `/api` to the API):
+
 ```bash
-# Client — http://localhost:5173, proxies /api to the API
 cd client
 npm install
 npm run dev
 ```
 
+Then open http://localhost:5173. The client needs the API running to do anything — if you see "Can't reach the API server," terminal 1 either isn't running or is still starting up.
+
+To stop either one, click into its terminal and press `Ctrl+C`.
+
 Development sign-in is seeded from `appsettings.Development.json` (`dev@careerconnect.local` / `devpassword1`). The JWT signing key and seed credentials there are development-only values; anything real belongs in user secrets or environment variables.
+
+**Port already in use?** That usually means a previous `dotnet run` is still running in the background from an earlier session. Find and stop it:
+
+```bash
+lsof -ti:5199 | xargs kill   # API; use 5173 for the client
+```
 
 ### Enabling match scoring
 
