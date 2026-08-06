@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using CareerConnect.Api.Contracts;
 using CareerConnect.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -9,7 +8,9 @@ namespace CareerConnect.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/applications")]
-public class ApplicationsController(IApplicationService applications) : ControllerBase
+public class ApplicationsController(
+    IApplicationService applications,
+    IMatchScoringService matches) : ApiControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<ApplicationResponse>>> List() =>
@@ -60,8 +61,61 @@ public class ApplicationsController(IApplicationService applications) : Controll
     public async Task<IActionResult> Delete(Guid id) =>
         await applications.DeleteAsync(UserId, id) ? NoContent() : NotFound();
 
-    private Guid UserId =>
-        Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? User.FindFirstValue("sub")
-            ?? throw new InvalidOperationException("Authenticated user has no id claim."));
+    /// <summary>Latest stored match result per application, keyed by application id.</summary>
+    [HttpGet("matches")]
+    public async Task<ActionResult<Dictionary<Guid, MatchResultResponse>>> Matches() =>
+        Ok(await matches.GetLatestForAllAsync(UserId));
+
+    [HttpGet("{id:guid}/match")]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<MatchResultResponse>> GetMatch(Guid id)
+    {
+        var match = await matches.GetLatestAsync(UserId, id);
+        return match is null ? NotFound() : Ok(match);
+    }
+
+    /// <summary>Runs a fresh resume/job-description comparison and stores the result.</summary>
+    [HttpPost("{id:guid}/match")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<MatchResultResponse>> Score(Guid id, CancellationToken cancellationToken)
+    {
+        var outcome = await matches.ScoreAsync(UserId, id, cancellationToken);
+
+        return outcome switch
+        {
+            ScoreOutcome.Success success => Ok(success.Result),
+
+            ScoreOutcome.Failed { Reason: MatchFailureReason.ApplicationNotFound } => NotFound(),
+
+            // Preconditions the user can fix (no JD, no active resume) are 409:
+            // the request was well-formed, the data isn't ready yet.
+            ScoreOutcome.Failed failed and { Reason: MatchFailureReason.NoJobDescription or MatchFailureReason.NoActiveResume }
+                => Conflict(Problem(failed, StatusCodes.Status409Conflict)),
+
+            ScoreOutcome.Failed failed and { Reason: MatchFailureReason.AnalyzerUnavailable }
+                => StatusCode(StatusCodes.Status503ServiceUnavailable, Problem(failed, StatusCodes.Status503ServiceUnavailable)),
+
+            ScoreOutcome.Failed failed
+                => StatusCode(StatusCodes.Status502BadGateway, Problem(failed, StatusCodes.Status502BadGateway)),
+
+            _ => StatusCode(StatusCodes.Status500InternalServerError),
+        };
+    }
+
+    private static ProblemDetails Problem(ScoreOutcome.Failed failed, int status)
+    {
+        var problem = new ProblemDetails
+        {
+            Title = failed.Message,
+            Status = status,
+        };
+
+        // Machine-readable reason goes in an extension, not Detail — Detail is
+        // rendered to the user and the enum name is not a sentence.
+        problem.Extensions["reason"] = failed.Reason.ToString();
+        return problem;
+    }
 }

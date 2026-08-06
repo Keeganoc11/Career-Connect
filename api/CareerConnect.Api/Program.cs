@@ -19,10 +19,13 @@ builder.Services.AddProblemDetails();
 // SQLite for local dev. Swapping providers later means changing this call and
 // regenerating Data/Migrations against the new provider — see README.
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("Default")
-        ?? "Data Source=careerconnect.db"));
+    options.UseSqlite(SqliteConnectionString.Resolve(builder.Configuration, builder.Environment)));
 
 builder.Services.AddScoped<IApplicationService, ApplicationService>();
+builder.Services.AddScoped<IResumeService, ResumeService>();
+builder.Services.AddSingleton<IResumeFileTextExtractor, ResumeFileTextExtractor>();
+builder.Services.AddScoped<IMatchScoringService, MatchScoringService>();
+builder.Services.AddSingleton<IResumeMatchAnalyzer, ClaudeResumeMatchAnalyzer>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 
 builder.Services

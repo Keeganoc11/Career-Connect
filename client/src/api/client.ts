@@ -3,6 +3,10 @@ import type {
   ApplicationInput,
   ApplicationStatus,
   LoginResponse,
+  MatchResult,
+  Resume,
+  ResumeInput,
+  ResumeSummary,
   Summary,
 } from './types'
 
@@ -35,16 +39,7 @@ export const auth = {
   },
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers)
-  headers.set('Content-Type', 'application/json')
-  const token = auth.token
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`)
-  }
-
-  const response = await fetch(path, { ...init, headers })
-
+async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let message = `Request failed (${response.status})`
     try {
@@ -68,6 +63,45 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     return undefined as T
   }
   return (await response.json()) as T
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers)
+  headers.set('Content-Type', 'application/json')
+  const token = auth.token
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+
+  let response: Response
+  try {
+    response = await fetch(path, { ...init, headers })
+  } catch {
+    // fetch only rejects on network-level failure — almost always "the API
+    // isn't running". Status 0 marks it as unreachable rather than a real
+    // HTTP error, so callers never confuse it with an empty result.
+    throw new ApiError(0, 'Can’t reach the API server. Is it running on port 5199?')
+  }
+
+  return handleResponse<T>(response)
+}
+
+/** Multipart upload — no Content-Type header, fetch sets the boundary itself. */
+async function requestFile<T>(path: string, formData: FormData): Promise<T> {
+  const headers = new Headers()
+  const token = auth.token
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+
+  let response: Response
+  try {
+    response = await fetch(path, { method: 'POST', headers, body: formData })
+  } catch {
+    throw new ApiError(0, 'Can’t reach the API server. Is it running on port 5199?')
+  }
+
+  return handleResponse<T>(response)
 }
 
 export const api = {
@@ -109,5 +143,55 @@ export const api = {
 
   deleteApplication(id: string) {
     return request<void>(`/api/applications/${id}`, { method: 'DELETE' })
+  },
+
+  listResumes() {
+    return request<ResumeSummary[]>('/api/resumes')
+  },
+
+  getResume(id: string) {
+    return request<Resume>(`/api/resumes/${id}`)
+  },
+
+  createResume(input: ResumeInput) {
+    return request<Resume>('/api/resumes', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  },
+
+  uploadResume(file: File, label?: string) {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (label?.trim()) {
+      formData.append('label', label.trim())
+    }
+    return requestFile<Resume>('/api/resumes/upload', formData)
+  },
+
+  updateResume(id: string, input: ResumeInput) {
+    return request<Resume>(`/api/resumes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    })
+  },
+
+  setActiveResume(id: string) {
+    return request<Resume>(`/api/resumes/${id}/active`, { method: 'PATCH' })
+  },
+
+  deleteResume(id: string) {
+    return request<void>(`/api/resumes/${id}`, { method: 'DELETE' })
+  },
+
+  /** Latest stored match per application, keyed by application id. */
+  listMatches() {
+    return request<Record<string, MatchResult>>('/api/applications/matches')
+  },
+
+  scoreMatch(applicationId: string) {
+    return request<MatchResult>(`/api/applications/${applicationId}/match`, {
+      method: 'POST',
+    })
   },
 }

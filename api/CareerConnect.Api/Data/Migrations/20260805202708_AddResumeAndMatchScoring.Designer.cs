@@ -3,6 +3,7 @@ using System;
 using CareerConnect.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CareerConnect.Api.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260805202708_AddResumeAndMatchScoring")]
+    partial class AddResumeAndMatchScoring
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
@@ -66,7 +69,7 @@ namespace CareerConnect.Api.Data.Migrations
 
                     b.HasIndex("UserId", "Status");
 
-                    b.ToTable("Applications", (string)null);
+                    b.ToTable("Applications");
                 });
 
             modelBuilder.Entity("CareerConnect.Api.Domain.MatchResult", b =>
@@ -114,7 +117,7 @@ namespace CareerConnect.Api.Data.Migrations
 
                     b.HasIndex("ApplicationId", "CreatedAtUtc");
 
-                    b.ToTable("MatchResults", (string)null);
+                    b.ToTable("MatchResults");
                 });
 
             modelBuilder.Entity("CareerConnect.Api.Domain.Resume", b =>
@@ -148,7 +151,7 @@ namespace CareerConnect.Api.Data.Migrations
 
                     b.HasIndex("UserId", "IsActive");
 
-                    b.ToTable("Resumes", (string)null);
+                    b.ToTable("Resumes");
                 });
 
             modelBuilder.Entity("CareerConnect.Api.Domain.StatusChange", b =>
@@ -181,7 +184,7 @@ namespace CareerConnect.Api.Data.Migrations
 
                     b.HasIndex("ApplicationId");
 
-                    b.ToTable("StatusChanges", (string)null);
+                    b.ToTable("StatusChanges");
                 });
 
             modelBuilder.Entity("CareerConnect.Api.Domain.User", b =>
@@ -211,7 +214,7 @@ namespace CareerConnect.Api.Data.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.ToTable("Users", (string)null);
+                    b.ToTable("Users");
                 });
 
             modelBuilder.Entity("CareerConnect.Api.Domain.Application", b =>

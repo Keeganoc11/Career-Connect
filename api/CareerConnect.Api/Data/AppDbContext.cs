@@ -8,6 +8,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<User> Users => Set<User>();
     public DbSet<Application> Applications => Set<Application>();
     public DbSet<StatusChange> StatusChanges => Set<StatusChange>();
+    public DbSet<Resume> Resumes => Set<Resume>();
+    public DbSet<MatchResult> MatchResults => Set<MatchResult>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -47,6 +49,43 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                   .OnDelete(DeleteBehavior.Cascade);
 
             change.HasIndex(c => c.ApplicationId);
+        });
+
+        modelBuilder.Entity<Resume>(resume =>
+        {
+            resume.Property(r => r.Label).HasMaxLength(200);
+
+            resume.HasOne(r => r.User)
+                  .WithMany(u => u.Resumes)
+                  .HasForeignKey(r => r.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            resume.HasIndex(r => new { r.UserId, r.IsActive });
+        });
+
+        modelBuilder.Entity<MatchResult>(match =>
+        {
+            match.Property(m => m.ModelId).HasMaxLength(100);
+
+            // Keyword lists are read and written whole and never queried by
+            // element, so JSON columns beat a join table here.
+            match.Property(m => m.MatchedKeywords).HasStringListConversion();
+            match.Property(m => m.MissingKeywords).HasStringListConversion();
+            match.Property(m => m.Suggestions).HasSuggestedEditListConversion();
+
+            match.HasOne(m => m.Application)
+                 .WithMany(a => a.MatchResults)
+                 .HasForeignKey(m => m.ApplicationId)
+                 .OnDelete(DeleteBehavior.Cascade);
+
+            // Deleting a resume must not erase the scores it produced, so this
+            // FK restricts instead of cascading; the service blocks the delete.
+            match.HasOne(m => m.Resume)
+                 .WithMany(r => r.MatchResults)
+                 .HasForeignKey(m => m.ResumeId)
+                 .OnDelete(DeleteBehavior.Restrict);
+
+            match.HasIndex(m => new { m.ApplicationId, m.CreatedAtUtc });
         });
     }
 

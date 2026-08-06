@@ -21,4 +21,5 @@ public class Application
 
     public User User { get; set; } = null!;
     public List<StatusChange> StatusHistory { get; set; } = [];
+    public List<MatchResult> MatchResults { get; set; } = [];
 }

@@ -24,8 +24,15 @@ export function InlineStatusSelect({ value, disabled, onChange }: Props) {
         setOpen(false)
       }
     }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
     document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', escape)
+    }
   }, [open])
 
   return (
@@ -36,19 +43,19 @@ export function InlineStatusSelect({ value, disabled, onChange }: Props) {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition hover:brightness-95 disabled:opacity-50 ${meta.badge}`}
+        className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-semibold ring-1 ring-inset transition hover:brightness-95 disabled:opacity-50 ${meta.badge}`}
       >
-        <span className={`size-1.5 rounded-full ${meta.dot}`} aria-hidden />
+        <span className={`size-2 rounded-full ${meta.dot}`} aria-hidden />
         {meta.label}
-        <svg className="size-3 opacity-60" viewBox="0 0 12 12" fill="none" aria-hidden>
-          <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <svg className="size-3.5 opacity-60" viewBox="0 0 12 12" fill="none" aria-hidden>
+          <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
         </svg>
       </button>
 
       {open && (
         <ul
           role="listbox"
-          className="absolute left-0 z-20 mt-1.5 w-40 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+          className="absolute left-0 z-30 mt-2 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white py-1.5 shadow-xl"
         >
           {STATUSES.map((status) => (
             <li key={status}>
@@ -60,11 +67,11 @@ export function InlineStatusSelect({ value, disabled, onChange }: Props) {
                   setOpen(false)
                   if (status !== value) onChange(status)
                 }}
-                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-slate-50 ${
-                  status === value ? 'font-semibold text-slate-900' : 'text-slate-600'
+                className={`flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition hover:bg-brand-50 ${
+                  status === value ? 'font-bold text-brand-700' : 'font-medium text-slate-600'
                 }`}
               >
-                <span className={`size-2 rounded-full ${STATUS_META[status].dot}`} aria-hidden />
+                <span className={`size-2.5 rounded-full ${STATUS_META[status].dot}`} aria-hidden />
                 {STATUS_META[status].label}
               </button>
             </li>

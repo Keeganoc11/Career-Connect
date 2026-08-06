@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { STATUSES, type Application, type ApplicationInput } from '../api/types'
 import { STATUS_META } from '../lib/status'
+import { useEscapeKey } from '../lib/useEscapeKey'
 
 interface Props {
   /** null = creating a new application. */
@@ -17,7 +18,9 @@ function todayIso(): string {
 }
 
 const inputClass =
-  'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30'
+  'w-full rounded-xl border border-slate-300 px-4 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15'
+
+const labelClass = 'mb-1.5 block text-sm font-semibold text-slate-700'
 
 export function ApplicationFormModal({ application, onSave, onClose }: Props) {
   const isEdit = application !== null
@@ -32,6 +35,8 @@ export function ApplicationFormModal({ application, onSave, onClose }: Props) {
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEscapeKey(onClose)
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -55,35 +60,42 @@ export function ApplicationFormModal({ application, onSave, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 pt-12"
+      className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-10 backdrop-blur-sm"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
     >
       <form
         onSubmit={submit}
-        className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl"
+        className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-label={isEdit ? 'Edit application' : 'Add application'}
       >
-        <div className="mb-5 flex items-start justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">
-            {isEdit ? `Edit — ${application.companyName}` : 'Add application'}
-          </h2>
+        <div className="brand-gradient flex items-start justify-between px-7 py-5">
+          <div>
+            <h2 className="text-xl font-bold text-white">
+              {isEdit ? 'Edit application' : 'Add application'}
+            </h2>
+            <p className="mt-0.5 text-sm text-white/80">
+              {isEdit
+                ? application.companyName
+                : 'Paste the job description to unlock match scoring.'}
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-lg p-1.5 text-white/80 transition hover:bg-white/20 hover:text-white"
           >
             ✕
           </button>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium text-slate-700">Company *</span>
+        <div className="grid gap-5 p-7 sm:grid-cols-2">
+          <label className="block">
+            <span className={labelClass}>Company *</span>
             <input
               className={inputClass}
               value={companyName}
@@ -93,8 +105,8 @@ export function ApplicationFormModal({ application, onSave, onClose }: Props) {
               autoFocus
             />
           </label>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium text-slate-700">Role title *</span>
+          <label className="block">
+            <span className={labelClass}>Role title *</span>
             <input
               className={inputClass}
               value={roleTitle}
@@ -103,8 +115,8 @@ export function ApplicationFormModal({ application, onSave, onClose }: Props) {
               maxLength={200}
             />
           </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className="mb-1 block font-medium text-slate-700">Job posting URL</span>
+          <label className="block sm:col-span-2">
+            <span className={labelClass}>Job posting URL</span>
             <input
               className={inputClass}
               type="url"
@@ -114,8 +126,8 @@ export function ApplicationFormModal({ application, onSave, onClose }: Props) {
               maxLength={2048}
             />
           </label>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium text-slate-700">Date applied *</span>
+          <label className="block">
+            <span className={labelClass}>Date applied *</span>
             <input
               className={inputClass}
               type="date"
@@ -125,8 +137,8 @@ export function ApplicationFormModal({ application, onSave, onClose }: Props) {
             />
           </label>
           {!isEdit && (
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium text-slate-700">Status</span>
+            <label className="block">
+              <span className={labelClass}>Status</span>
               <select
                 className={inputClass}
                 value={status}
@@ -140,8 +152,8 @@ export function ApplicationFormModal({ application, onSave, onClose }: Props) {
               </select>
             </label>
           )}
-          <label className="block text-sm sm:col-span-2">
-            <span className="mb-1 block font-medium text-slate-700">Notes</span>
+          <label className="block sm:col-span-2">
+            <span className={labelClass}>Notes</span>
             <textarea
               className={inputClass}
               rows={3}
@@ -150,34 +162,41 @@ export function ApplicationFormModal({ application, onSave, onClose }: Props) {
               onChange={(e) => setNotes(e.target.value)}
             />
           </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className="mb-1 block font-medium text-slate-700">Job description</span>
+          <label className="block sm:col-span-2">
+            <span className={labelClass}>
+              Job description
+              <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700">
+                powers match scoring
+              </span>
+            </span>
             <textarea
-              className={inputClass}
-              rows={5}
-              placeholder="Paste the full job description — used for match scoring later."
+              className={`${inputClass} font-mono text-sm`}
+              rows={6}
+              placeholder="Paste the full job description here."
               value={jobDescriptionText}
               onChange={(e) => setJobDescriptionText(e.target.value)}
             />
           </label>
+
+          {error && (
+            <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-base font-medium text-rose-700 sm:col-span-2">
+              {error}
+            </p>
+          )}
         </div>
 
-        {error && (
-          <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
-        )}
-
-        <div className="mt-6 flex justify-end gap-2">
+        <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-7 py-5">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+            className="rounded-xl px-5 py-2.5 text-base font-semibold text-slate-600 transition hover:bg-slate-200/60"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={saving}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:opacity-60"
+            className="brand-gradient rounded-xl px-6 py-2.5 text-base font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:opacity-95 disabled:opacity-60"
           >
             {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add application'}
           </button>

@@ -9,4 +9,5 @@ public class User
     public DateTime CreatedAtUtc { get; set; }
 
     public List<Application> Applications { get; set; } = [];
+    public List<Resume> Resumes { get; set; } = [];
 }

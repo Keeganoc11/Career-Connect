@@ -51,6 +51,48 @@ export interface Summary {
   counts: StatusCount[]
 }
 
+export interface ResumeSummary {
+  id: string
+  label: string
+  isActive: boolean
+  characterCount: number
+  updatedAtUtc: string
+}
+
+export interface Resume {
+  id: string
+  label: string
+  content: string
+  isActive: boolean
+  createdAtUtc: string
+  updatedAtUtc: string
+}
+
+export interface ResumeInput {
+  label: string
+  content: string
+}
+
+export interface SuggestedEdit {
+  section: string
+  guidance: string
+  suggestedText: string
+}
+
+export interface MatchResult {
+  id: string
+  applicationId: string
+  resumeId: string
+  resumeLabel: string
+  score: number
+  summary: string
+  matchedKeywords: string[]
+  missingKeywords: string[]
+  suggestions: SuggestedEdit[]
+  modelId: string
+  createdAtUtc: string
+}
+
 export interface LoginResponse {
   token: string
   email: string

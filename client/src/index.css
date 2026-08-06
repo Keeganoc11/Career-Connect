@@ -2,8 +2,40 @@
 
 @theme {
   --font-sans: "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+
+  /* Brand ramp sampled from the logo: vivid purple through violet to blue. */
+  --color-brand-50: #f6f1ff;
+  --color-brand-100: #ece1ff;
+  --color-brand-200: #dbc7ff;
+  --color-brand-300: #c19eff;
+  --color-brand-400: #a56cfa;
+  --color-brand-500: #9333ea;
+  --color-brand-600: #7c3aed;
+  --color-brand-700: #6821d4;
+  --color-brand-800: #551bad;
+  --color-brand-900: #45188a;
+}
+
+html {
+  font-size: 16px;
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-slate-50 text-slate-800 antialiased;
+}
+
+/* The signature gradient — purple top-left to blue bottom-right, as in the mark. */
+.brand-gradient {
+  background-image: linear-gradient(135deg, #a21cf0 0%, #7c3aed 46%, #2563eb 100%);
+}
+
+.brand-gradient-soft {
+  background-image: linear-gradient(135deg, #f6f1ff 0%, #f2eeff 50%, #eef2ff 100%);
+}
+
+.brand-text-gradient {
+  background-image: linear-gradient(120deg, #a21cf0 0%, #7c3aed 50%, #2563eb 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
