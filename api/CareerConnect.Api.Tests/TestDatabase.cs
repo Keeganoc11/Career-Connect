@@ -44,7 +44,8 @@ public sealed class TestDatabase : IDisposable
     public Application SeedApplication(
         Guid userId,
         string company = "Acme",
-        string? jobDescription = "We need a backend engineer with ASP.NET Core experience.")
+        string? jobDescription = "We need a backend engineer with ASP.NET Core experience.",
+        ApplicationStatus status = ApplicationStatus.Applied)
     {
         var application = new Application
         {
@@ -52,7 +53,7 @@ public sealed class TestDatabase : IDisposable
             UserId = userId,
             CompanyName = company,
             RoleTitle = "Software Engineer",
-            Status = ApplicationStatus.Applied,
+            Status = status,
             DateApplied = new DateOnly(2026, 8, 1),
             JobDescriptionText = jobDescription,
             CreatedAtUtc = DateTime.UtcNow,

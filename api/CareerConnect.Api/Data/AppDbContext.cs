@@ -10,6 +10,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<StatusChange> StatusChanges => Set<StatusChange>();
     public DbSet<Resume> Resumes => Set<Resume>();
     public DbSet<MatchResult> MatchResults => Set<MatchResult>();
+    public DbSet<GmailConnection> GmailConnections => Set<GmailConnection>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -86,6 +87,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                  .OnDelete(DeleteBehavior.Restrict);
 
             match.HasIndex(m => new { m.ApplicationId, m.CreatedAtUtc });
+        });
+
+        modelBuilder.Entity<GmailConnection>(gmail =>
+        {
+            gmail.Property(g => g.ConnectedEmail).HasMaxLength(320);
+
+            gmail.HasOne(g => g.User)
+                 .WithOne(u => u.GmailConnection)
+                 .HasForeignKey<GmailConnection>(g => g.UserId)
+                 .OnDelete(DeleteBehavior.Cascade);
+
+            gmail.HasIndex(g => g.UserId).IsUnique();
         });
     }
 

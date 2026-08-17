@@ -6,6 +6,8 @@ import { useEscapeKey } from '../lib/useEscapeKey'
 interface Props {
   /** null = creating a new application. */
   application: Application | null
+  /** Initial field values when creating a new application (e.g. from a Gmail suggestion). Ignored when editing. */
+  prefill?: Partial<Pick<ApplicationInput, 'companyName' | 'roleTitle' | 'dateApplied'>>
   onSave: (input: ApplicationInput) => Promise<void>
   onClose: () => void
 }
@@ -22,13 +24,13 @@ const inputClass =
 
 const labelClass = 'mb-1.5 block text-sm font-semibold text-slate-700'
 
-export function ApplicationFormModal({ application, onSave, onClose }: Props) {
+export function ApplicationFormModal({ application, prefill, onSave, onClose }: Props) {
   const isEdit = application !== null
-  const [companyName, setCompanyName] = useState(application?.companyName ?? '')
-  const [roleTitle, setRoleTitle] = useState(application?.roleTitle ?? '')
+  const [companyName, setCompanyName] = useState(application?.companyName ?? prefill?.companyName ?? '')
+  const [roleTitle, setRoleTitle] = useState(application?.roleTitle ?? prefill?.roleTitle ?? '')
   const [jobPostingUrl, setJobPostingUrl] = useState(application?.jobPostingUrl ?? '')
   const [status, setStatus] = useState(application?.status ?? 'Applied')
-  const [dateApplied, setDateApplied] = useState(application?.dateApplied ?? todayIso())
+  const [dateApplied, setDateApplied] = useState(application?.dateApplied ?? prefill?.dateApplied ?? todayIso())
   const [notes, setNotes] = useState(application?.notes ?? '')
   const [jobDescriptionText, setJobDescriptionText] = useState(
     application?.jobDescriptionText ?? '',
@@ -80,7 +82,9 @@ export function ApplicationFormModal({ application, onSave, onClose }: Props) {
             <p className="mt-0.5 text-sm text-white/80">
               {isEdit
                 ? application.companyName
-                : 'Paste the job description to unlock match scoring.'}
+                : prefill
+                  ? 'Detected from Gmail — review the details, then paste the job description to unlock match scoring.'
+                  : 'Paste the job description to unlock match scoring.'}
             </p>
           </div>
           <button

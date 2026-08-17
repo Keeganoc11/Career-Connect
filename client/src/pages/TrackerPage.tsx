@@ -4,14 +4,22 @@ import type {
   Application,
   ApplicationInput,
   ApplicationStatus,
+  GmailConnectionStatus,
+  GmailScanResult,
   MatchResult,
+  ResumeSummary,
+  SuggestedNewApplication,
+  SuggestedStatusUpdate,
   Summary,
+  TailorResumeInput,
 } from '../api/types'
 import { SummaryBar } from '../components/SummaryBar'
 import { ApplicationsTable } from '../components/ApplicationsTable'
 import { ApplicationFormModal } from '../components/ApplicationFormModal'
 import { MatchDetailModal } from '../components/MatchDetailModal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { GmailConnectControl } from '../components/GmailConnectControl'
+import { GmailSuggestionsModal } from '../components/GmailSuggestionsModal'
 
 export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [applications, setApplications] = useState<Application[]>([])
@@ -26,9 +34,17 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [scoringId, setScoringId] = useState<string | null>(null)
   const [scoreError, setScoreError] = useState<string | null>(null)
   const [matchTarget, setMatchTarget] = useState<Application | null>(null)
+  const [resumes, setResumes] = useState<ResumeSummary[]>([])
+  const [tailoring, setTailoring] = useState(false)
   const [formTarget, setFormTarget] = useState<Application | null | 'new'>(null)
+  const [formPrefill, setFormPrefill] = useState<Partial<Pick<ApplicationInput, 'companyName' | 'roleTitle' | 'dateApplied'>> | undefined>(undefined)
   const [deleteTarget, setDeleteTarget] = useState<Application | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  const [gmailStatus, setGmailStatus] = useState<GmailConnectionStatus | null>(null)
+  const [gmailScanning, setGmailScanning] = useState(false)
+  const [gmailBanner, setGmailBanner] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
+  const [gmailScanResult, setGmailScanResult] = useState<GmailScanResult | null>(null)
 
   const handleError = useCallback(
     (e: unknown) => {
@@ -44,14 +60,16 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [list, counts, latestMatches] = await Promise.all([
+      const [list, counts, latestMatches, resumeList] = await Promise.all([
         api.listApplications(),
         api.getSummary(),
         api.listMatches(),
+        api.listResumes(),
       ])
       setApplications(list)
       setSummary(counts)
       setMatches(latestMatches)
+      setResumes(resumeList)
       setLoadError(null)
     } catch (e) {
       handleError(e)
@@ -63,6 +81,91 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  const loadGmailStatus = useCallback(async () => {
+    try {
+      setGmailStatus(await api.getGmailStatus())
+    } catch (e) {
+      handleError(e)
+    }
+  }, [handleError])
+
+  useEffect(() => {
+    void loadGmailStatus()
+  }, [loadGmailStatus])
+
+  // Land here after the Google OAuth redirect — read the outcome once, then
+  // strip the query string so a page refresh doesn't re-show the banner.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const gmailResult = params.get('gmail')
+    if (!gmailResult) return
+
+    if (gmailResult === 'connected') {
+      setGmailBanner({ tone: 'success', message: 'Gmail connected.' })
+      void loadGmailStatus()
+    } else if (gmailResult === 'error') {
+      setGmailBanner({
+        tone: 'error',
+        message: params.get('message') || 'Could not connect Gmail.',
+      })
+    }
+    window.history.replaceState({}, '', window.location.pathname)
+    // Intentionally runs once on mount — this reads the URL exactly once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const connectGmail = async () => {
+    try {
+      window.location.href = await api.getGmailAuthorizationUrl()
+    } catch (e) {
+      handleError(e)
+    }
+  }
+
+  const disconnectGmail = async () => {
+    try {
+      await api.disconnectGmail()
+      await loadGmailStatus()
+    } catch (e) {
+      handleError(e)
+    }
+  }
+
+  const scanGmail = async () => {
+    setGmailScanning(true)
+    setGmailBanner(null)
+    try {
+      const result = await api.scanGmail()
+      await loadGmailStatus()
+      if (result.statusUpdates.length === 0 && result.newApplications.length === 0) {
+        setGmailBanner({ tone: 'success', message: 'No new updates found.' })
+      } else {
+        setGmailScanResult(result)
+      }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        handleError(e)
+      } else {
+        setGmailBanner({ tone: 'error', message: e instanceof Error ? e.message : 'Scan failed.' })
+      }
+    } finally {
+      setGmailScanning(false)
+    }
+  }
+
+  const acceptGmailSuggestion = async (suggestion: SuggestedStatusUpdate) => {
+    await changeStatus(suggestion.applicationId, suggestion.suggestedStatus)
+  }
+
+  const reviewNewApplicationFromGmail = (suggestion: SuggestedNewApplication) => {
+    setFormPrefill({
+      companyName: suggestion.companyName,
+      roleTitle: suggestion.roleTitle,
+      dateApplied: suggestion.emailReceivedAtUtc.slice(0, 10),
+    })
+    setFormTarget('new')
+  }
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -107,6 +210,29 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
   }
 
+  const loadResumeContent = (id: string) => api.getResume(id)
+
+  const tailorAndRescore = async (input: TailorResumeInput) => {
+    if (!matchTarget) return
+    setTailoring(true)
+    try {
+      const saved =
+        input.mode === 'existing'
+          ? await api.updateResume(input.resumeId, { label: input.label, content: input.content })
+          : await api.createResume({ label: input.label, content: input.content })
+
+      if (!saved.isActive) {
+        await api.setActiveResume(saved.id)
+      }
+
+      const [result, resumeList] = await Promise.all([api.scoreMatch(matchTarget.id), api.listResumes()])
+      setMatches((current) => ({ ...current, [matchTarget.id]: result }))
+      setResumes(resumeList)
+    } finally {
+      setTailoring(false)
+    }
+  }
+
   const save = async (input: ApplicationInput) => {
     if (formTarget === 'new') {
       await api.createApplication(input)
@@ -114,6 +240,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
       await api.updateApplication(formTarget.id, input)
     }
     setFormTarget(null)
+    setFormPrefill(undefined)
     await refresh()
   }
 
@@ -143,7 +270,10 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
           </div>
           <button
             type="button"
-            onClick={() => setFormTarget('new')}
+            onClick={() => {
+              setFormPrefill(undefined)
+              setFormTarget('new')
+            }}
             className="brand-gradient rounded-xl px-5 py-3 text-base font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:opacity-95"
           >
             + Add application
@@ -158,31 +288,61 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
           />
         )}
 
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative w-full max-w-sm">
-            <span
-              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-              aria-hidden
-            >
-              ⌕
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative w-full max-w-sm">
+              <span
+                className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                aria-hidden
+              >
+                ⌕
+              </span>
+              <input
+                type="search"
+                placeholder="Search company or role…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-4 text-base placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15"
+              />
+            </div>
+            <span className="text-sm font-medium text-slate-500">
+              {visible.length} of {applications.length} shown
             </span>
-            <input
-              type="search"
-              placeholder="Search company or role…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-4 text-base placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15"
-            />
           </div>
-          <span className="text-sm font-medium text-slate-500">
-            {visible.length} of {applications.length} shown
-          </span>
+
+          <GmailConnectControl
+            status={gmailStatus}
+            scanning={gmailScanning}
+            onConnect={() => void connectGmail()}
+            onScan={() => void scanGmail()}
+            onDisconnect={() => void disconnectGmail()}
+          />
         </div>
 
         {loadError && applications.length > 0 && (
           <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-base font-medium text-rose-700">
             {loadError}
           </p>
+        )}
+
+        {gmailBanner && (
+          <div
+            className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-base font-medium ${
+              gmailBanner.tone === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                : 'border-rose-200 bg-rose-50 text-rose-700'
+            }`}
+          >
+            <span>{gmailBanner.message}</span>
+            <button
+              type="button"
+              onClick={() => setGmailBanner(null)}
+              aria-label="Dismiss"
+              className="shrink-0 rounded-lg px-2 py-0.5 font-bold opacity-70 hover:opacity-100"
+            >
+              ✕
+            </button>
+          </div>
         )}
 
         {scoreError && (
@@ -234,7 +394,10 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
             {applications.length === 0 && (
               <button
                 type="button"
-                onClick={() => setFormTarget('new')}
+                onClick={() => {
+                  setFormPrefill(undefined)
+                  setFormTarget('new')
+                }}
                 className="brand-gradient mt-6 rounded-xl px-5 py-3 text-base font-semibold text-white shadow-lg shadow-brand-600/25"
               >
                 + Add your first application
@@ -256,12 +419,26 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
         )}
       </main>
 
+      {gmailScanResult && (
+        <GmailSuggestionsModal
+          statusUpdates={gmailScanResult.statusUpdates}
+          newApplications={gmailScanResult.newApplications}
+          onAcceptStatusUpdate={acceptGmailSuggestion}
+          onAddNewApplication={reviewNewApplicationFromGmail}
+          onClose={() => setGmailScanResult(null)}
+        />
+      )}
+
       {matchTarget && matches[matchTarget.id] && (
         <MatchDetailModal
           application={matchTarget}
           match={matches[matchTarget.id]}
+          resumes={resumes}
           rescoring={scoringId === matchTarget.id}
+          tailoring={tailoring}
           onRescore={() => void score(matchTarget)}
+          onLoadResumeContent={loadResumeContent}
+          onTailorAndRescore={tailorAndRescore}
           onClose={() => setMatchTarget(null)}
         />
       )}
@@ -269,8 +446,12 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
       {formTarget !== null && (
         <ApplicationFormModal
           application={formTarget === 'new' ? null : formTarget}
+          prefill={formTarget === 'new' ? formPrefill : undefined}
           onSave={save}
-          onClose={() => setFormTarget(null)}
+          onClose={() => {
+            setFormTarget(null)
+            setFormPrefill(undefined)
+          }}
         />
       )}
 

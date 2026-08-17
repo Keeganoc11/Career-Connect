@@ -1,14 +1,20 @@
-import { useState } from 'react'
-import type { Application, MatchResult, SuggestedEdit } from '../api/types'
+import { useCallback, useState } from 'react'
+import type { Application, MatchResult, Resume, ResumeSummary, SuggestedEdit, TailorResumeInput } from '../api/types'
 import { scoreBand } from '../lib/matchScore'
 import { formatRelative } from '../lib/format'
 import { useEscapeKey } from '../lib/useEscapeKey'
 
+const MIN_RESUME_LENGTH = 50
+
 interface Props {
   application: Application
   match: MatchResult
+  resumes: ResumeSummary[]
   rescoring: boolean
+  tailoring: boolean
   onRescore: () => void
+  onLoadResumeContent: (id: string) => Promise<Resume>
+  onTailorAndRescore: (input: TailorResumeInput) => Promise<void>
   onClose: () => void
 }
 
@@ -103,7 +109,203 @@ function SuggestionCard({ suggestion }: { suggestion: SuggestedEdit }) {
   )
 }
 
-export function MatchDetailModal({ application, match, rescoring, onRescore, onClose }: Props) {
+const fieldClass =
+  'w-full rounded-xl border border-slate-300 px-4 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15'
+
+function TailorPanel({
+  application,
+  match,
+  resumes,
+  tailoring,
+  onLoadResumeContent,
+  onTailorAndRescore,
+}: {
+  application: Application
+  match: MatchResult
+  resumes: ResumeSummary[]
+  tailoring: boolean
+  onLoadResumeContent: (id: string) => Promise<Resume>
+  onTailorAndRescore: (input: TailorResumeInput) => Promise<void>
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [selection, setSelection] = useState<string>(() =>
+    resumes.some((r) => r.id === match.resumeId) ? match.resumeId : 'new',
+  )
+  const [label, setLabel] = useState('')
+  const [content, setContent] = useState('')
+  const [loadingContent, setLoadingContent] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [justSaved, setJustSaved] = useState(false)
+
+  const loadSelection = useCallback(
+    async (value: string) => {
+      setError(null)
+      setLoadingContent(true)
+      try {
+        if (value === 'new') {
+          // Seed a new resume with the text that actually earned this score,
+          // so tailoring starts from something instead of a blank page.
+          const seed = await onLoadResumeContent(match.resumeId)
+          setLabel(`${application.companyName} — tailored`)
+          setContent(seed.content)
+        } else {
+          const resume = await onLoadResumeContent(value)
+          setLabel(resume.label)
+          setContent(resume.content)
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not load resume.')
+      } finally {
+        setLoadingContent(false)
+      }
+    },
+    [application.companyName, match.resumeId, onLoadResumeContent],
+  )
+
+  const expand = () => {
+    setExpanded(true)
+    void loadSelection(selection)
+  }
+
+  const changeSelection = (value: string) => {
+    setSelection(value)
+    void loadSelection(value)
+  }
+
+  const submit = async () => {
+    setError(null)
+    try {
+      await onTailorAndRescore(
+        selection === 'new'
+          ? { mode: 'new', label: label.trim(), content: content.trim() }
+          : { mode: 'existing', resumeId: selection, label: label.trim(), content: content.trim() },
+      )
+      setJustSaved(true)
+      setTimeout(() => setJustSaved(false), 3000)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save and re-score.')
+    }
+  }
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={expand}
+        className="text-sm font-bold text-brand-600 transition hover:text-brand-700"
+      >
+        Tailor this resume →
+      </button>
+    )
+  }
+
+  const tooShort = content.trim().length > 0 && content.trim().length < MIN_RESUME_LENGTH
+  const canSubmit =
+    !tailoring &&
+    !loadingContent &&
+    content.trim().length >= MIN_RESUME_LENGTH &&
+    (selection !== 'new' || label.trim().length > 0)
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-lg font-bold text-slate-900">Tailor &amp; re-score</h3>
+        {justSaved && (
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+            Saved and re-scored ✓
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-sm text-slate-500">
+        Edit the resume below, then save — it becomes your active resume and this application is
+        re-scored against it immediately.
+      </p>
+
+      <label className="mt-4 block">
+        <span className="mb-1.5 block text-sm font-semibold text-slate-700">Editing</span>
+        <select
+          className={fieldClass}
+          value={selection}
+          onChange={(e) => changeSelection(e.target.value)}
+          disabled={loadingContent}
+        >
+          {resumes.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.label}
+              {r.isActive ? ' (active)' : ''}
+            </option>
+          ))}
+          <option value="new">+ New resume for this application</option>
+        </select>
+      </label>
+
+      {selection === 'new' && (
+        <label className="mt-4 block">
+          <span className="mb-1.5 block text-sm font-semibold text-slate-700">Label</span>
+          <input
+            className={fieldClass}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            maxLength={200}
+          />
+        </label>
+      )}
+
+      <label className="mt-4 block">
+        <span className="mb-1.5 block text-sm font-semibold text-slate-700">Resume text</span>
+        <textarea
+          className={`${fieldClass} font-mono text-sm leading-relaxed`}
+          rows={14}
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          disabled={loadingContent}
+          placeholder={loadingContent ? 'Loading…' : undefined}
+        />
+        {tooShort && (
+          <span className="mt-1 block text-xs font-medium text-rose-600">
+            At least {MIN_RESUME_LENGTH} characters needed.
+          </span>
+        )}
+      </label>
+
+      {error && (
+        <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+          {error}
+        </p>
+      )}
+
+      <div className="mt-4 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-500 transition hover:bg-slate-100"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={!canSubmit}
+          className="brand-gradient rounded-lg px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-60"
+        >
+          {tailoring ? 'Saving & scoring…' : 'Save & re-score'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export function MatchDetailModal({
+  application,
+  match,
+  resumes,
+  rescoring,
+  tailoring,
+  onRescore,
+  onLoadResumeContent,
+  onTailorAndRescore,
+  onClose,
+}: Props) {
   const band = scoreBand(match.score)
   useEscapeKey(onClose)
 
@@ -188,6 +390,15 @@ export function MatchDetailModal({ application, match, rescoring, onRescore, onC
                 </div>
               </div>
             )}
+
+            <TailorPanel
+              application={application}
+              match={match}
+              resumes={resumes}
+              tailoring={tailoring}
+              onLoadResumeContent={onLoadResumeContent}
+              onTailorAndRescore={onTailorAndRescore}
+            />
           </div>
         </div>
 

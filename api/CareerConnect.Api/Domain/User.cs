@@ -10,4 +10,5 @@ public class User
 
     public List<Application> Applications { get; set; } = [];
     public List<Resume> Resumes { get; set; } = [];
+    public GmailConnection? GmailConnection { get; set; }
 }

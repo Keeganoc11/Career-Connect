@@ -2,6 +2,8 @@ import type {
   Application,
   ApplicationInput,
   ApplicationStatus,
+  GmailConnectionStatus,
+  GmailScanResult,
   LoginResponse,
   MatchResult,
   Resume,
@@ -193,5 +195,22 @@ export const api = {
     return request<MatchResult>(`/api/applications/${applicationId}/match`, {
       method: 'POST',
     })
+  },
+
+  getGmailStatus() {
+    return request<GmailConnectionStatus>('/api/gmail/status')
+  },
+
+  async getGmailAuthorizationUrl() {
+    const { authorizationUrl } = await request<{ authorizationUrl: string }>('/api/gmail/connect')
+    return authorizationUrl
+  },
+
+  disconnectGmail() {
+    return request<void>('/api/gmail/connection', { method: 'DELETE' })
+  },
+
+  scanGmail() {
+    return request<GmailScanResult>('/api/gmail/scan', { method: 'POST' })
   },
 }

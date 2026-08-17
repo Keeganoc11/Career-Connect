@@ -28,6 +28,12 @@ builder.Services.AddScoped<IMatchScoringService, MatchScoringService>();
 builder.Services.AddSingleton<IResumeMatchAnalyzer, ClaudeResumeMatchAnalyzer>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 
+builder.Services.AddDataProtection();
+builder.Services.AddScoped<IGmailOAuthService, GmailOAuthService>();
+builder.Services.AddScoped<IGmailMailReader, GmailMailReader>();
+builder.Services.AddScoped<IGmailUpdateScanner, GmailUpdateScanner>();
+builder.Services.AddSingleton<IEmailStatusClassifier, ClaudeEmailStatusClassifier>();
+
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

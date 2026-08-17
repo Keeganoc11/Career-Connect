@@ -93,6 +93,43 @@ export interface MatchResult {
   createdAtUtc: string
 }
 
+export type TailorResumeInput =
+  | { mode: 'existing'; resumeId: string; label: string; content: string }
+  | { mode: 'new'; label: string; content: string }
+
+export interface GmailConnectionStatus {
+  connected: boolean
+  connectedEmail?: string
+  connectedAtUtc?: string
+  lastCheckedAtUtc?: string
+}
+
+export interface SuggestedStatusUpdate {
+  applicationId: string
+  companyName: string
+  roleTitle: string
+  currentStatus: ApplicationStatus
+  suggestedStatus: ApplicationStatus
+  reasoning: string
+  emailSubject: string
+  emailFrom: string
+  emailReceivedAtUtc: string
+}
+
+export interface SuggestedNewApplication {
+  companyName: string
+  roleTitle: string
+  reasoning: string
+  emailSubject: string
+  emailFrom: string
+  emailReceivedAtUtc: string
+}
+
+export interface GmailScanResult {
+  statusUpdates: SuggestedStatusUpdate[]
+  newApplications: SuggestedNewApplication[]
+}
+
 export interface LoginResponse {
   token: string
   email: string
