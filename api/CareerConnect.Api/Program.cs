@@ -21,6 +21,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(SqliteConnectionString.Resolve(builder.Configuration, builder.Environment)));
 
+builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IApplicationService, ApplicationService>();
 builder.Services.AddScoped<IResumeService, ResumeService>();
 builder.Services.AddSingleton<IResumeFileTextExtractor, ResumeFileTextExtractor>();

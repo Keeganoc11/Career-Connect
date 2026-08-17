@@ -152,18 +152,23 @@ public class ResumeService(AppDbContext db, IResumeFileTextExtractor extractor) 
 
     public async Task<ResumeResponse?> SetActiveAsync(Guid userId, Guid id)
     {
-        var resumes = await db.Resumes.Where(r => r.UserId == userId).ToListAsync();
-        var target = resumes.FirstOrDefault(r => r.Id == id);
+        var target = await db.Resumes.FirstOrDefaultAsync(r => r.UserId == userId && r.Id == id);
         if (target is null)
         {
             return null;
         }
 
-        foreach (var resume in resumes)
+        // Only the currently-active row(s) — usually just one — need to change;
+        // no reason to pull every resume's body into memory for this.
+        var currentlyActive = await db.Resumes
+            .Where(r => r.UserId == userId && r.IsActive && r.Id != id)
+            .ToListAsync();
+        foreach (var resume in currentlyActive)
         {
-            resume.IsActive = resume.Id == id;
+            resume.IsActive = false;
         }
 
+        target.IsActive = true;
         await db.SaveChangesAsync();
         return ToResponse(target);
     }

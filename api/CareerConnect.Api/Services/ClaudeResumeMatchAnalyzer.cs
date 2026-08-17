@@ -54,21 +54,16 @@ public class ClaudeResumeMatchAnalyzer : IResumeMatchAnalyzer
     public ClaudeResumeMatchAnalyzer(IConfiguration configuration, ILogger<ClaudeResumeMatchAnalyzer> logger)
     {
         _logger = logger;
-        _model = configuration["Anthropic:Model"] ?? "claude-opus-5";
+        _model = AnthropicClientFactory.ResolveModel(configuration);
         _effort = ParseEffort(configuration["Anthropic:Effort"]);
+        _client = AnthropicClientFactory.CreateClient(configuration);
 
-        var apiKey = configuration["Anthropic:ApiKey"]
-            ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
-
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (_client is null)
         {
             _logger.LogWarning(
                 "No Anthropic API key configured — match scoring is disabled. " +
                 "Set ANTHROPIC_API_KEY or the Anthropic:ApiKey user secret to enable it.");
-            return;
         }
-
-        _client = new AnthropicClient { ApiKey = apiKey };
     }
 
     public bool IsConfigured => _client is not null;
@@ -136,11 +131,7 @@ public class ClaudeResumeMatchAnalyzer : IResumeMatchAnalyzer
             throw new MatchAnalysisException("The analysis was cut off before it finished. Try a shorter job description.");
         }
 
-        var json = response.Content
-            .Select(block => block.Value)
-            .OfType<TextBlock>()
-            .Select(text => text.Text)
-            .FirstOrDefault();
+        var json = AnthropicResponse.ExtractText(response);
 
         if (string.IsNullOrWhiteSpace(json))
         {
@@ -149,7 +140,7 @@ public class ClaudeResumeMatchAnalyzer : IResumeMatchAnalyzer
 
         try
         {
-            var parsed = JsonSerializer.Deserialize<AnalysisPayload>(json, JsonOptions)
+            var parsed = JsonSerializer.Deserialize<AnalysisPayload>(json, AnthropicResponse.SnakeCaseJsonOptions)
                 ?? throw new MatchAnalysisException("Claude returned an empty analysis.");
 
             return new MatchAnalysis(
@@ -166,11 +157,6 @@ public class ClaudeResumeMatchAnalyzer : IResumeMatchAnalyzer
             throw new MatchAnalysisException("Claude returned an analysis that could not be read.", ex);
         }
     }
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-    };
 
     private sealed record AnalysisPayload(
         int Score,

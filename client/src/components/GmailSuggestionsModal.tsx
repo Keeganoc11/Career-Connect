@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { SuggestedNewApplication, SuggestedStatusUpdate } from '../api/types'
 import { STATUS_META } from '../lib/status'
 import { formatRelative } from '../lib/format'
-import { useEscapeKey } from '../lib/useEscapeKey'
+import { ModalBackdrop, ModalHeader } from './Modal'
 
 interface Props {
   statusUpdates: SuggestedStatusUpdate[]
@@ -158,7 +158,6 @@ export function GmailSuggestionsModal({
 }: Props) {
   const [statusUpdates, setStatusUpdates] = useState(initialStatusUpdates)
   const [newApplications, setNewApplications] = useState(initialNewApplications)
-  useEscapeKey(onClose)
 
   const removeStatusUpdate = (target: SuggestedStatusUpdate) =>
     setStatusUpdates((current) => current.filter((s) => s !== target))
@@ -169,36 +168,18 @@ export function GmailSuggestionsModal({
   const total = statusUpdates.length + newApplications.length
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-10 backdrop-blur-sm"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
+    <ModalBackdrop onClose={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Gmail suggestions"
         className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl"
       >
-        <div className="brand-gradient flex items-start justify-between px-7 py-5">
-          <div>
-            <h2 className="text-xl font-bold text-white">
-              {total === 0 ? 'All caught up' : `${total} suggestion${total === 1 ? '' : 's'} found`}
-            </h2>
-            <p className="mt-0.5 text-sm text-white/80">
-              Found in your recent email — review each before applying.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-lg p-1.5 text-white/80 transition hover:bg-white/20 hover:text-white"
-          >
-            ✕
-          </button>
-        </div>
+        <ModalHeader
+          title={total === 0 ? 'All caught up' : `${total} suggestion${total === 1 ? '' : 's'} found`}
+          subtitle="Found in your recent email — review each before applying."
+          onClose={onClose}
+        />
 
         <div className="max-h-[70vh] overflow-y-auto p-7">
           {total === 0 ? (
@@ -252,6 +233,6 @@ export function GmailSuggestionsModal({
           )}
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   )
 }

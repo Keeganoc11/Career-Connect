@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, auth, ApiError } from '../api/client'
+import { api, ApiError } from '../api/client'
 import type {
   Application,
   ApplicationInput,
@@ -20,6 +20,7 @@ import { MatchDetailModal } from '../components/MatchDetailModal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { GmailConnectControl } from '../components/GmailConnectControl'
 import { GmailSuggestionsModal } from '../components/GmailSuggestionsModal'
+import { useApiErrorHandler } from '../lib/useApiErrorHandler'
 
 export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [applications, setApplications] = useState<Application[]>([])
@@ -46,17 +47,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [gmailBanner, setGmailBanner] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
   const [gmailScanResult, setGmailScanResult] = useState<GmailScanResult | null>(null)
 
-  const handleError = useCallback(
-    (e: unknown) => {
-      if (e instanceof ApiError && e.status === 401) {
-        auth.clear()
-        onLoggedOut()
-        return
-      }
-      setLoadError(e instanceof Error ? e.message : 'Something went wrong.')
-    },
-    [onLoggedOut],
-  )
+  const handleError = useApiErrorHandler(onLoggedOut, setLoadError)
 
   const refresh = useCallback(async () => {
     try {

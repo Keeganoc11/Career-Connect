@@ -1,3 +1,4 @@
+using CareerConnect.Api.Contracts;
 using CareerConnect.Api.Data;
 using CareerConnect.Api.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -29,19 +30,42 @@ public class GmailUpdateScanner(
                 "Email status detection needs an Anthropic API key. See the README for setup.");
         }
 
-        var applications = await db.Applications
+        // Independent of each other — both start immediately, so the DB read
+        // overlaps with the (slower, network-bound) Gmail fetch instead of
+        // adding to the critical path. Both are always awaited via WhenAll
+        // (even when one faults) so neither is left running unobserved
+        // against a DbContext this request scope may dispose underneath it.
+        var applicationsTask = db.Applications
             .AsNoTracking()
             .Where(a => a.UserId == userId && !ExcludedFromScan.Contains(a.Status))
             .ToListAsync(cancellationToken);
+        var emailsTask = StartEmailFetch();
 
-        List<CandidateEmail> emails;
         try
         {
-            emails = await mailReader.GetRecentCandidateEmailsAsync(userId, connection.LastCheckedAtUtc, cancellationToken);
+            await Task.WhenAll(applicationsTask, emailsTask);
         }
-        catch (Exception ex)
+        catch when (emailsTask.IsFaulted)
         {
-            return new GmailScanOutcome.Failed($"Couldn't read Gmail: {ex.Message}");
+            return new GmailScanOutcome.Failed($"Couldn't read Gmail: {emailsTask.Exception!.InnerException?.Message}");
+        }
+
+        var applications = applicationsTask.Result;
+        var emails = emailsTask.Result;
+
+        // A misbehaving IGmailMailReader could throw synchronously instead of
+        // faulting the task it returns — funnel that into the same task-based
+        // path above so it can't escape before WhenAll ever runs.
+        Task<List<CandidateEmail>> StartEmailFetch()
+        {
+            try
+            {
+                return mailReader.GetRecentCandidateEmailsAsync(userId, connection.LastCheckedAtUtc, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                return Task.FromException<List<CandidateEmail>>(ex);
+            }
         }
 
         // Advance the watermark regardless of what we found — otherwise a
@@ -134,6 +158,31 @@ public class GmailUpdateScanner(
                 email.ReceivedAtUtc));
         }
 
-        return new GmailScanOutcome.Success(statusUpdates, newApplications);
+        return new GmailScanOutcome.Success(
+            statusUpdates.Select(ToResponse).ToList(),
+            newApplications.Select(ToResponse).ToList());
     }
+
+    private static SuggestedStatusUpdateResponse ToResponse(SuggestedStatusUpdate s) => new()
+    {
+        ApplicationId = s.ApplicationId,
+        CompanyName = s.CompanyName,
+        RoleTitle = s.RoleTitle,
+        CurrentStatus = s.CurrentStatus,
+        SuggestedStatus = s.SuggestedStatus,
+        Reasoning = s.Reasoning,
+        EmailSubject = s.EmailSubject,
+        EmailFrom = s.EmailFrom,
+        EmailReceivedAtUtc = s.EmailReceivedAtUtc,
+    };
+
+    private static SuggestedNewApplicationResponse ToResponse(SuggestedNewApplication n) => new()
+    {
+        CompanyName = n.CompanyName,
+        RoleTitle = n.RoleTitle,
+        Reasoning = n.Reasoning,
+        EmailSubject = n.EmailSubject,
+        EmailFrom = n.EmailFrom,
+        EmailReceivedAtUtc = n.EmailReceivedAtUtc,
+    };
 }

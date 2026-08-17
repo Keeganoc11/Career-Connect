@@ -2,7 +2,8 @@ import { useCallback, useState } from 'react'
 import type { Application, MatchResult, Resume, ResumeSummary, SuggestedEdit, TailorResumeInput } from '../api/types'
 import { scoreBand } from '../lib/matchScore'
 import { formatRelative } from '../lib/format'
-import { useEscapeKey } from '../lib/useEscapeKey'
+import { fieldClass } from '../lib/styles'
+import { ModalBackdrop, ModalHeader } from './Modal'
 
 const MIN_RESUME_LENGTH = 50
 
@@ -108,9 +109,6 @@ function SuggestionCard({ suggestion }: { suggestion: SuggestedEdit }) {
     </div>
   )
 }
-
-const fieldClass =
-  'w-full rounded-xl border border-slate-300 px-4 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15'
 
 function TailorPanel({
   application,
@@ -307,39 +305,20 @@ export function MatchDetailModal({
   onClose,
 }: Props) {
   const band = scoreBand(match.score)
-  useEscapeKey(onClose)
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-10 backdrop-blur-sm"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
+    <ModalBackdrop onClose={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Match details"
         className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl"
       >
-        <div className="brand-gradient flex items-start justify-between gap-4 px-7 py-5">
-          <div>
-            <h2 className="text-xl font-bold text-white">
-              {application.companyName} — {application.roleTitle}
-            </h2>
-            <p className="mt-0.5 text-sm text-white/80">
-              Scored against “{match.resumeLabel}” · {formatRelative(match.createdAtUtc)}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-lg p-1.5 text-white/80 transition hover:bg-white/20 hover:text-white"
-          >
-            ✕
-          </button>
-        </div>
+        <ModalHeader
+          title={`${application.companyName} — ${application.roleTitle}`}
+          subtitle={`Scored against “${match.resumeLabel}” · ${formatRelative(match.createdAtUtc)}`}
+          onClose={onClose}
+        />
 
         <div className="p-7">
           <div className="flex flex-wrap items-center gap-6 rounded-2xl border border-slate-200 bg-slate-50 p-6">
@@ -416,6 +395,6 @@ export function MatchDetailModal({
           </button>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   )
 }

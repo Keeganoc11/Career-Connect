@@ -130,8 +130,8 @@ public class GmailController(
         {
             GmailScanOutcome.Success success => Ok(new GmailScanResponse
             {
-                StatusUpdates = success.StatusUpdates.Select(ToResponse).ToList(),
-                NewApplications = success.NewApplications.Select(ToResponse).ToList(),
+                StatusUpdates = success.StatusUpdates,
+                NewApplications = success.NewApplications,
             }),
             GmailScanOutcome.Failed failed => Conflict(new ProblemDetails
             {
@@ -141,27 +141,4 @@ public class GmailController(
             _ => StatusCode(StatusCodes.Status500InternalServerError),
         };
     }
-
-    private static SuggestedStatusUpdateResponse ToResponse(SuggestedStatusUpdate s) => new()
-    {
-        ApplicationId = s.ApplicationId,
-        CompanyName = s.CompanyName,
-        RoleTitle = s.RoleTitle,
-        CurrentStatus = s.CurrentStatus,
-        SuggestedStatus = s.SuggestedStatus,
-        Reasoning = s.Reasoning,
-        EmailSubject = s.EmailSubject,
-        EmailFrom = s.EmailFrom,
-        EmailReceivedAtUtc = s.EmailReceivedAtUtc,
-    };
-
-    private static SuggestedNewApplicationResponse ToResponse(SuggestedNewApplication n) => new()
-    {
-        CompanyName = n.CompanyName,
-        RoleTitle = n.RoleTitle,
-        Reasoning = n.Reasoning,
-        EmailSubject = n.EmailSubject,
-        EmailFrom = n.EmailFrom,
-        EmailReceivedAtUtc = n.EmailReceivedAtUtc,
-    };
 }

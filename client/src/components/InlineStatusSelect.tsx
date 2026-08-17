@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { STATUSES, type ApplicationStatus } from '../api/types'
 import { STATUS_META } from '../lib/status'
+import { useEscapeKey } from '../lib/useEscapeKey'
 
 interface Props {
   value: ApplicationStatus
@@ -17,6 +18,8 @@ export function InlineStatusSelect({ value, disabled, onChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const meta = STATUS_META[value]
 
+  useEscapeKey(() => setOpen(false))
+
   useEffect(() => {
     if (!open) return
     const close = (event: MouseEvent) => {
@@ -24,15 +27,8 @@ export function InlineStatusSelect({ value, disabled, onChange }: Props) {
         setOpen(false)
       }
     }
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
     document.addEventListener('mousedown', close)
-    document.addEventListener('keydown', escape)
-    return () => {
-      document.removeEventListener('mousedown', close)
-      document.removeEventListener('keydown', escape)
-    }
+    return () => document.removeEventListener('mousedown', close)
   }, [open])
 
   return (

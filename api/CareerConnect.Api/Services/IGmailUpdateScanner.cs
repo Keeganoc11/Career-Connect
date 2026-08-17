@@ -1,7 +1,9 @@
+using CareerConnect.Api.Contracts;
 using CareerConnect.Api.Domain;
 
 namespace CareerConnect.Api.Services;
 
+/// <summary>A candidate status change for one already-tracked application, found during a scan.</summary>
 public record SuggestedStatusUpdate(
     Guid ApplicationId,
     string CompanyName,
@@ -13,6 +15,7 @@ public record SuggestedStatusUpdate(
     string EmailFrom,
     DateTime EmailReceivedAtUtc);
 
+/// <summary>A candidate new application found during a scan, not yet tracked.</summary>
 public record SuggestedNewApplication(
     string CompanyName,
     string RoleTitle,
@@ -24,8 +27,8 @@ public record SuggestedNewApplication(
 public abstract record GmailScanOutcome
 {
     public sealed record Success(
-        List<SuggestedStatusUpdate> StatusUpdates,
-        List<SuggestedNewApplication> NewApplications) : GmailScanOutcome;
+        List<SuggestedStatusUpdateResponse> StatusUpdates,
+        List<SuggestedNewApplicationResponse> NewApplications) : GmailScanOutcome;
     public sealed record Failed(string Message) : GmailScanOutcome;
 }
 

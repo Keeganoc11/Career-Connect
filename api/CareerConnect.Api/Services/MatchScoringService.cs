@@ -113,12 +113,21 @@ public class MatchScoringService(AppDbContext db, IResumeMatchAnalyzer analyzer)
 
     public async Task<Dictionary<Guid, MatchResultResponse>> GetLatestForAllAsync(Guid userId)
     {
+        // Rescoring never overwrites a MatchResult — it adds a new one — so this
+        // table only grows. Filtering to each application's latest in SQL keeps
+        // this query flat instead of transferring the full rescore history.
         var results = await db.MatchResults
             .AsNoTracking()
             .Include(m => m.Resume)
             .Where(m => m.Application.UserId == userId)
+            .Where(m => m.CreatedAtUtc == db.MatchResults
+                .Where(x => x.ApplicationId == m.ApplicationId)
+                .Max(x => x.CreatedAtUtc))
             .ToListAsync();
 
+        // A GroupBy here is just a tie-break for the (extremely unlikely) case of
+        // two results with an identical timestamp — it never runs over more than
+        // one extra row per application.
         return results
             .GroupBy(m => m.ApplicationId)
             .ToDictionary(

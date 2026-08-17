@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { api, auth, ApiError } from '../api/client'
+import { api, ApiError } from '../api/client'
 import type { ResumeSummary } from '../api/types'
 import { formatRelative } from '../lib/format'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-
-const inputClass =
-  'w-full rounded-xl border border-slate-300 px-4 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15'
+import { fieldClass as inputClass } from '../lib/styles'
+import { useApiErrorHandler } from '../lib/useApiErrorHandler'
 
 const MIN_CONTENT = 50
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -25,17 +24,7 @@ export function ResumesPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
-  const handleError = useCallback(
-    (e: unknown) => {
-      if (e instanceof ApiError && e.status === 401) {
-        auth.clear()
-        onLoggedOut()
-        return
-      }
-      setError(e instanceof Error ? e.message : 'Something went wrong.')
-    },
-    [onLoggedOut],
-  )
+  const handleError = useApiErrorHandler(onLoggedOut, setError)
 
   const refresh = useCallback(async () => {
     try {

@@ -56,15 +56,8 @@ public class ClaudeEmailStatusClassifier : IEmailStatusClassifier
 
     public ClaudeEmailStatusClassifier(IConfiguration configuration)
     {
-        _model = configuration["Anthropic:Model"] ?? "claude-opus-5";
-
-        var apiKey = configuration["Anthropic:ApiKey"]
-            ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
-
-        if (!string.IsNullOrWhiteSpace(apiKey))
-        {
-            _client = new AnthropicClient { ApiKey = apiKey };
-        }
+        _model = AnthropicClientFactory.ResolveModel(configuration);
+        _client = AnthropicClientFactory.CreateClient(configuration);
     }
 
     public bool IsConfigured => _client is not null;
@@ -102,18 +95,14 @@ public class ClaudeEmailStatusClassifier : IEmailStatusClassifier
             return new EmailClassificationResult([], []);
         }
 
-        var json = response.Content
-            .Select(block => block.Value)
-            .OfType<TextBlock>()
-            .Select(text => text.Text)
-            .FirstOrDefault();
+        var json = AnthropicResponse.ExtractText(response);
 
         if (string.IsNullOrWhiteSpace(json))
         {
             return new EmailClassificationResult([], []);
         }
 
-        var payload = JsonSerializer.Deserialize<ClassificationPayload>(json, JsonOptions);
+        var payload = JsonSerializer.Deserialize<ClassificationPayload>(json, AnthropicResponse.SnakeCaseJsonOptions);
         return new EmailClassificationResult(payload?.Matches ?? [], payload?.NewApplications ?? []);
     }
 
@@ -135,11 +124,6 @@ public class ClaudeEmailStatusClassifier : IEmailStatusClassifier
             {emailLines}
             """;
     }
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-    };
 
     private sealed record ClassificationPayload(
         List<EmailClassificationMatch> Matches,

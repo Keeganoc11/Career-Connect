@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { STATUSES, type Application, type ApplicationInput } from '../api/types'
 import { STATUS_META } from '../lib/status'
-import { useEscapeKey } from '../lib/useEscapeKey'
+import { fieldClass as inputClass } from '../lib/styles'
+import { ModalBackdrop, ModalHeader } from './Modal'
 
 interface Props {
   /** null = creating a new application. */
@@ -19,9 +20,6 @@ function todayIso(): string {
   return `${now.getFullYear()}-${month}-${day}`
 }
 
-const inputClass =
-  'w-full rounded-xl border border-slate-300 px-4 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15'
-
 const labelClass = 'mb-1.5 block text-sm font-semibold text-slate-700'
 
 export function ApplicationFormModal({ application, prefill, onSave, onClose }: Props) {
@@ -37,8 +35,6 @@ export function ApplicationFormModal({ application, prefill, onSave, onClose }: 
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEscapeKey(onClose)
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -61,12 +57,7 @@ export function ApplicationFormModal({ application, prefill, onSave, onClose }: 
   }
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-10 backdrop-blur-sm"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
+    <ModalBackdrop onClose={onClose}>
       <form
         onSubmit={submit}
         className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl"
@@ -74,28 +65,17 @@ export function ApplicationFormModal({ application, prefill, onSave, onClose }: 
         aria-modal="true"
         aria-label={isEdit ? 'Edit application' : 'Add application'}
       >
-        <div className="brand-gradient flex items-start justify-between px-7 py-5">
-          <div>
-            <h2 className="text-xl font-bold text-white">
-              {isEdit ? 'Edit application' : 'Add application'}
-            </h2>
-            <p className="mt-0.5 text-sm text-white/80">
-              {isEdit
-                ? application.companyName
-                : prefill
-                  ? 'Detected from Gmail — review the details, then paste the job description to unlock match scoring.'
-                  : 'Paste the job description to unlock match scoring.'}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-lg p-1.5 text-white/80 transition hover:bg-white/20 hover:text-white"
-          >
-            ✕
-          </button>
-        </div>
+        <ModalHeader
+          title={isEdit ? 'Edit application' : 'Add application'}
+          subtitle={
+            isEdit
+              ? application.companyName
+              : prefill
+                ? 'Detected from Gmail — review the details, then paste the job description to unlock match scoring.'
+                : 'Paste the job description to unlock match scoring.'
+          }
+          onClose={onClose}
+        />
 
         <div className="grid gap-5 p-7 sm:grid-cols-2">
           <label className="block">
@@ -206,6 +186,6 @@ export function ApplicationFormModal({ application, prefill, onSave, onClose }: 
           </button>
         </div>
       </form>
-    </div>
+    </ModalBackdrop>
   )
 }
