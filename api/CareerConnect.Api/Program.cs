@@ -28,6 +28,10 @@ builder.Services.AddScoped<IMatchScoringService, MatchScoringService>();
 builder.Services.AddSingleton<IResumeMatchAnalyzer, ClaudeResumeMatchAnalyzer>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 
+builder.Services.AddSingleton<IJobPostingFetcher, JobPostingFetcher>();
+builder.Services.AddSingleton<IJobPostingExtractor, ClaudeJobPostingExtractor>();
+builder.Services.AddScoped<IJobPostingIngestService, JobPostingIngestService>();
+
 // Encrypts the stored Gmail refresh token (see GmailOAuthService). Without a
 // persisted key ring, a container redeploy generates a new one and silently
 // strands every previously-stored token — set DataProtection:KeysPath to a

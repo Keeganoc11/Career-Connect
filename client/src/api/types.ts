@@ -130,6 +130,12 @@ export interface GmailScanResult {
   newApplications: SuggestedNewApplication[]
 }
 
+export interface JobPostingExtraction {
+  companyName: string
+  roleTitle: string
+  jobDescriptionText: string
+}
+
 export interface LoginResponse {
   token: string
   email: string

@@ -10,11 +10,57 @@ namespace CareerConnect.Api.Controllers;
 [Route("api/applications")]
 public class ApplicationsController(
     IApplicationService applications,
-    IMatchScoringService matches) : ApiControllerBase
+    IMatchScoringService matches,
+    IJobPostingIngestService jobPostings) : ApiControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<ApplicationResponse>>> List() =>
         Ok(await applications.ListAsync(UserId));
+
+    /// <summary>Fetches a job posting URL and extracts company/role/description to prefill the add-application form. Creates nothing itself.</summary>
+    [HttpPost("extract-from-url")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<JobPostingExtractionResponse>> ExtractFromUrl(
+        ExtractJobPostingRequest request, CancellationToken cancellationToken)
+    {
+        var outcome = await jobPostings.IngestAsync(request.Url, cancellationToken);
+
+        return outcome switch
+        {
+            JobPostingIngestOutcome.Success success => Ok(new JobPostingExtractionResponse
+            {
+                CompanyName = success.CompanyName,
+                RoleTitle = success.RoleTitle,
+                JobDescriptionText = success.JobDescriptionText,
+            }),
+
+            JobPostingIngestOutcome.Failed { Reason: JobPostingIngestFailureReason.NotAJobPosting } failed
+                => StatusCode(StatusCodes.Status422UnprocessableEntity, new ProblemDetails
+                {
+                    Title = failed.Message,
+                    Status = StatusCodes.Status422UnprocessableEntity,
+                }),
+
+            JobPostingIngestOutcome.Failed { Reason: JobPostingIngestFailureReason.ExtractorUnavailable } failed
+                => StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails
+                {
+                    Title = failed.Message,
+                    Status = StatusCodes.Status503ServiceUnavailable,
+                }),
+
+            JobPostingIngestOutcome.Failed failed
+                => StatusCode(StatusCodes.Status502BadGateway, new ProblemDetails
+                {
+                    Title = failed.Message,
+                    Status = StatusCodes.Status502BadGateway,
+                }),
+
+            _ => StatusCode(StatusCodes.Status500InternalServerError),
+        };
+    }
 
     [HttpGet("summary")]
     public async Task<ActionResult<SummaryResponse>> Summary() =>

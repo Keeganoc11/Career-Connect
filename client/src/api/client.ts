@@ -4,6 +4,7 @@ import type {
   ApplicationStatus,
   GmailConnectionStatus,
   GmailScanResult,
+  JobPostingExtraction,
   LoginResponse,
   MatchResult,
   Resume,
@@ -120,6 +121,13 @@ export const api = {
 
   getSummary() {
     return request<Summary>('/api/applications/summary')
+  },
+
+  extractJobPosting(url: string) {
+    return request<JobPostingExtraction>('/api/applications/extract-from-url', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    })
   },
 
   createApplication(input: ApplicationInput) {

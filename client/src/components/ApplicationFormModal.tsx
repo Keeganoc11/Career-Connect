@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { api, ApiError } from '../api/client'
 import { STATUSES, type Application, type ApplicationInput } from '../api/types'
 import { STATUS_META } from '../lib/status'
 import { fieldClass as inputClass } from '../lib/styles'
@@ -35,6 +36,30 @@ export function ApplicationFormModal({ application, prefill, onSave, onClose }: 
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const [extractUrl, setExtractUrl] = useState('')
+  const [extracting, setExtracting] = useState(false)
+  const [extractError, setExtractError] = useState<string | null>(null)
+  const [extracted, setExtracted] = useState(false)
+
+  const extractFromUrl = async () => {
+    const url = extractUrl.trim()
+    if (!url) return
+    setExtracting(true)
+    setExtractError(null)
+    try {
+      const result = await api.extractJobPosting(url)
+      setCompanyName(result.companyName)
+      setRoleTitle(result.roleTitle)
+      setJobDescriptionText(result.jobDescriptionText)
+      setJobPostingUrl(url)
+      setExtracted(true)
+    } catch (e) {
+      setExtractError(e instanceof ApiError ? e.message : 'Something went wrong.')
+    } finally {
+      setExtracting(false)
+    }
+  }
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -76,6 +101,46 @@ export function ApplicationFormModal({ application, prefill, onSave, onClose }: 
           }
           onClose={onClose}
         />
+
+        {!isEdit && (
+          <div className="border-b border-slate-100 bg-brand-50/50 px-7 py-5">
+            <span className={labelClass}>
+              ✨ Fill in from a job posting URL
+            </span>
+            <div className="flex gap-2">
+              <input
+                className={inputClass}
+                type="url"
+                placeholder="https://…"
+                value={extractUrl}
+                onChange={(e) => {
+                  setExtractUrl(e.target.value)
+                  setExtracted(false)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    void extractFromUrl()
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => void extractFromUrl()}
+                disabled={extracting || !extractUrl.trim()}
+                className="brand-gradient shrink-0 rounded-xl px-5 py-2.5 text-base font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:opacity-95 disabled:opacity-60"
+              >
+                {extracting ? 'Reading…' : 'Fill in'}
+              </button>
+            </div>
+            {extractError && <p className="mt-2 text-sm font-medium text-rose-700">{extractError}</p>}
+            {extracted && !extractError && (
+              <p className="mt-2 text-sm font-medium text-emerald-700">
+                Filled in below — review before saving, especially the job description.
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="grid gap-5 p-7 sm:grid-cols-2">
           <label className="block">

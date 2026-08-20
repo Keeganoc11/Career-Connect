@@ -45,6 +45,19 @@ public class UpdateApplicationRequest
     public string? JobDescriptionText { get; init; }
 }
 
+public class ExtractJobPostingRequest
+{
+    [Required, Url, MaxLength(2048)]
+    public required string Url { get; init; }
+}
+
+public class JobPostingExtractionResponse
+{
+    public required string CompanyName { get; init; }
+    public required string RoleTitle { get; init; }
+    public required string JobDescriptionText { get; init; }
+}
+
 public class UpdateStatusRequest
 {
     [Required]
