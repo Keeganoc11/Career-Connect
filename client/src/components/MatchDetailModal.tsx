@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { api, ApiError } from '../api/client'
 import type { Application, MatchResult, Resume, ResumeSummary, SuggestedEdit, TailorResumeInput } from '../api/types'
 import { scoreBand } from '../lib/matchScore'
 import { formatRelative } from '../lib/format'
@@ -134,6 +135,8 @@ function TailorPanel({
   const [loadingContent, setLoadingContent] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [justSaved, setJustSaved] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState<string | null>(null)
 
   const loadSelection = useCallback(
     async (value: string) => {
@@ -168,6 +171,19 @@ function TailorPanel({
   const changeSelection = (value: string) => {
     setSelection(value)
     void loadSelection(value)
+  }
+
+  const generate = async () => {
+    setGenerateError(null)
+    setGenerating(true)
+    try {
+      const result = await api.tailorResume(application.id, content)
+      setContent(result.content)
+    } catch (e) {
+      setGenerateError(e instanceof ApiError ? e.message : 'Something went wrong.')
+    } finally {
+      setGenerating(false)
+    }
   }
 
   const submit = async () => {
@@ -250,7 +266,17 @@ function TailorPanel({
       )}
 
       <label className="mt-4 block">
-        <span className="mb-1.5 block text-sm font-semibold text-slate-700">Resume text</span>
+        <div className="mb-1.5 flex items-center justify-between gap-3">
+          <span className="text-sm font-semibold text-slate-700">Resume text</span>
+          <button
+            type="button"
+            onClick={() => void generate()}
+            disabled={generating || loadingContent || content.trim().length < MIN_RESUME_LENGTH}
+            className="rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-bold text-brand-700 ring-1 ring-inset ring-brand-200 transition hover:bg-brand-100 disabled:opacity-60"
+          >
+            {generating ? 'Generating…' : '✨ Generate with AI'}
+          </button>
+        </div>
         <textarea
           className={`${fieldClass} font-mono text-sm leading-relaxed`}
           rows={14}
@@ -264,6 +290,13 @@ function TailorPanel({
             At least {MIN_RESUME_LENGTH} characters needed.
           </span>
         )}
+        {generateError && (
+          <span className="mt-1 block text-xs font-medium text-rose-600">{generateError}</span>
+        )}
+        <p className="mt-1.5 text-xs text-slate-400">
+          Rewrites the text above to fit this posting, reordering and reframing your real experience —
+          review before saving.
+        </p>
       </label>
 
       {error && (

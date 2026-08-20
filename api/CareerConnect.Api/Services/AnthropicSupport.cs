@@ -19,6 +19,17 @@ public static class AnthropicClientFactory
         var apiKey = configuration["Anthropic:ApiKey"] ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
         return string.IsNullOrWhiteSpace(apiKey) ? null : new AnthropicClient { ApiKey = apiKey };
     }
+
+    public static Effort ResolveEffort(IConfiguration configuration) =>
+        configuration["Anthropic:Effort"]?.ToLowerInvariant() switch
+        {
+            "low" => Effort.Low,
+            "high" => Effort.High,
+            "max" => Effort.Max,
+            // Scoped extraction-and-judgement tasks: medium is the cost/quality
+            // sweet spot here. Override with Anthropic:Effort.
+            _ => Effort.Medium,
+        };
 }
 
 /// <summary>Helpers for reading a structured-output response shared by the Claude-backed services.</summary>

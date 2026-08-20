@@ -11,7 +11,8 @@ namespace CareerConnect.Api.Controllers;
 public class ApplicationsController(
     IApplicationService applications,
     IMatchScoringService matches,
-    IJobPostingIngestService jobPostings) : ApiControllerBase
+    IJobPostingIngestService jobPostings,
+    IResumeTailorService resumeTailor) : ApiControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<ApplicationResponse>>> List() =>
@@ -163,5 +164,43 @@ public class ApplicationsController(
         // rendered to the user and the enum name is not a sentence.
         problem.Extensions["reason"] = failed.Reason.ToString();
         return problem;
+    }
+
+    /// <summary>AI-rewrites the given resume text to fit this application's job description. Saves nothing itself.</summary>
+    [HttpPost("{id:guid}/tailor-resume")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<TailoredResumeResponse>> TailorResume(
+        Guid id, TailorResumeRequest request, CancellationToken cancellationToken)
+    {
+        var outcome = await resumeTailor.TailorAsync(UserId, id, request.ResumeContent, cancellationToken);
+
+        return outcome switch
+        {
+            TailorOutcome.Success success => Ok(new TailoredResumeResponse { Content = success.Content }),
+
+            TailorOutcome.Failed { Reason: TailorFailureReason.ApplicationNotFound } => NotFound(),
+
+            TailorOutcome.Failed failed and { Reason: TailorFailureReason.NoJobDescription }
+                => Conflict(new ProblemDetails { Title = failed.Message, Status = StatusCodes.Status409Conflict }),
+
+            TailorOutcome.Failed failed and { Reason: TailorFailureReason.TailorerUnavailable }
+                => StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails
+                {
+                    Title = failed.Message,
+                    Status = StatusCodes.Status503ServiceUnavailable,
+                }),
+
+            TailorOutcome.Failed failed
+                => StatusCode(StatusCodes.Status502BadGateway, new ProblemDetails
+                {
+                    Title = failed.Message,
+                    Status = StatusCodes.Status502BadGateway,
+                }),
+
+            _ => StatusCode(StatusCodes.Status500InternalServerError),
+        };
     }
 }

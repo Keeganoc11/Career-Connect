@@ -55,7 +55,7 @@ public class ClaudeResumeMatchAnalyzer : IResumeMatchAnalyzer
     {
         _logger = logger;
         _model = AnthropicClientFactory.ResolveModel(configuration);
-        _effort = ParseEffort(configuration["Anthropic:Effort"]);
+        _effort = AnthropicClientFactory.ResolveEffort(configuration);
         _client = AnthropicClientFactory.CreateClient(configuration);
 
         if (_client is null)
@@ -164,16 +164,6 @@ public class ClaudeResumeMatchAnalyzer : IResumeMatchAnalyzer
         List<string> MatchedKeywords,
         List<string> MissingKeywords,
         List<SuggestedEdit> Suggestions);
-
-    private static Effort ParseEffort(string? configured) => configured?.ToLowerInvariant() switch
-    {
-        "low" => Effort.Low,
-        "high" => Effort.High,
-        "max" => Effort.Max,
-        // Scoped extraction-and-judgement task: medium is the cost/quality
-        // sweet spot here. Override with Anthropic:Effort.
-        _ => Effort.Medium,
-    };
 
     private static Dictionary<string, JsonElement> ResponseSchema => new()
     {

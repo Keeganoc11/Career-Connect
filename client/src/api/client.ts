@@ -205,6 +205,13 @@ export const api = {
     })
   },
 
+  tailorResume(applicationId: string, resumeContent: string) {
+    return request<{ content: string }>(`/api/applications/${applicationId}/tailor-resume`, {
+      method: 'POST',
+      body: JSON.stringify({ resumeContent }),
+    })
+  },
+
   getGmailStatus() {
     return request<GmailConnectionStatus>('/api/gmail/status')
   },
