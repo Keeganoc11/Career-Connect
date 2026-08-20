@@ -11,12 +11,20 @@ namespace CareerConnect.Api.Controllers;
 public class GmailController(
     IGmailOAuthService oauth,
     IGmailUpdateScanner scanner,
-    IDataProtectionProvider dataProtectionProvider) : ApiControllerBase
+    IDataProtectionProvider dataProtectionProvider,
+    IConfiguration configuration) : ApiControllerBase
 {
-    // Local-only redirect targets — this app has no hosted deployment, same
-    // assumption the client CORS policy in Program.cs already makes.
-    private const string RedirectUri = "http://localhost:5199/api/gmail/callback";
-    private const string ClientOrigin = "http://localhost:5173";
+    // The URI Google redirects back to after consent — must exactly match one
+    // registered on the OAuth client in Google Cloud Console. Required in
+    // every environment (dev value lives in appsettings.Development.json).
+    private readonly string? _redirectUri = configuration["Gmail:RedirectUri"];
+
+    // Where to send the browser after the callback completes. Left unset in
+    // production on purpose: the client is served from this same app there
+    // (see Program.cs), so a relative redirect already lands in the right
+    // place. Only local dev needs this, since the Vite dev server runs on a
+    // different origin (port 5173) than the API (port 5199).
+    private readonly string _clientOrigin = configuration["App:ClientOrigin"] ?? "";
 
     // A separate purpose from the refresh-token protector: Data Protection
     // purposes should be per-payload-kind, never shared across secret types.
@@ -34,7 +42,7 @@ public class GmailController(
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public ActionResult<GmailAuthorizationUrlResponse> Connect()
     {
-        if (!oauth.IsConfigured)
+        if (!oauth.IsConfigured || string.IsNullOrWhiteSpace(_redirectUri))
         {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails
             {
@@ -46,7 +54,7 @@ public class GmailController(
         // Google's redirect back has no way to carry our JWT, so the user id
         // rides along encrypted in `state` — the callback below recovers it.
         var state = _stateProtector.Protect(UserId.ToString());
-        var url = oauth.BuildAuthorizationUrl(RedirectUri, state);
+        var url = oauth.BuildAuthorizationUrl(_redirectUri, state);
         return Ok(new GmailAuthorizationUrlResponse { AuthorizationUrl = url });
     }
 
@@ -75,9 +83,14 @@ public class GmailController(
             return RedirectToClient(success: false, "Invalid or expired connection request. Try connecting again.");
         }
 
+        if (string.IsNullOrWhiteSpace(_redirectUri))
+        {
+            return RedirectToClient(success: false, "Gmail integration is not configured.");
+        }
+
         try
         {
-            await oauth.ConnectAsync(userId, code, RedirectUri);
+            await oauth.ConnectAsync(userId, code, _redirectUri);
         }
         catch (Exception ex)
         {
@@ -89,8 +102,8 @@ public class GmailController(
 
     private RedirectResult RedirectToClient(bool success, string? message = null) =>
         Redirect(success
-            ? $"{ClientOrigin}/?gmail=connected"
-            : $"{ClientOrigin}/?gmail=error&message={Uri.EscapeDataString(message ?? "Something went wrong.")}");
+            ? $"{_clientOrigin}/?gmail=connected"
+            : $"{_clientOrigin}/?gmail=error&message={Uri.EscapeDataString(message ?? "Something went wrong.")}");
 
     [HttpGet("status")]
     [Authorize]

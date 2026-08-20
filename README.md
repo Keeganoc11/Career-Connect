@@ -34,7 +34,8 @@ Tracking a job search in a spreadsheet falls apart fast: statuses go stale, ther
 
 ## Tech stack
 
-- **API** — ASP.NET Core Web API (.NET 8), Entity Framework Core 8, SQLite for local dev (provider chosen in one place; swapping to SQL Server/Postgres means regenerating `Data/Migrations` against the new provider), JWT bearer auth, Swagger in development
+- **API** — ASP.NET Core Web API (.NET 8), Entity Framework Core 8, Postgres (Npgsql), JWT bearer auth, Swagger in development
+- **Deployment** — single Docker image (see `Dockerfile`): the API serves the built React client as static files, so there's one deployed service and no CORS/cross-origin concerns in production
 - **Client** — React 19 + TypeScript, Vite, Tailwind CSS v4
 - **Tests** — xUnit against the service layer, run on SQLite in-memory (a real relational engine, so FK constraints and cascade deletes behave like production)
 - **CI** — GitHub Actions: backend build + tests, frontend lint + typecheck + build on every push/PR
@@ -77,7 +78,17 @@ Status is excluded from the general update on purpose: it's the core interaction
 
 ## Running locally
 
-Prereqs: .NET 8 SDK (or newer — projects set `RollForward`), Node 20+.
+Prereqs: .NET 8 SDK (or newer — projects set `RollForward`), Node 20+, a local Postgres server.
+
+Postgres via Homebrew:
+
+```bash
+brew install postgresql@14
+brew services start postgresql@14
+createdb careerconnect
+```
+
+By default the API connects as your macOS username with no password (Postgres's local trust/peer auth) — see `ConnectionStrings:Default` in `appsettings.Development.json` if your local setup differs (different username, a password, Docker Postgres on a different port, etc.).
 
 The API and client are two separate processes — run each in its own terminal, at the same time.
 
@@ -125,7 +136,45 @@ Optional overrides in `appsettings.json`: `Anthropic:Model` (default `claude-opu
 dotnet test
 ```
 
-The database (`careerconnect.db`) is created and migrated automatically on first run.
+The database schema is created and migrated automatically on first run (`DbSeeder` calls `Database.MigrateAsync()` at startup).
+
+### Enabling Gmail-based status detection
+
+Needs a Google OAuth client (OAuth consent screen + credentials at [console.cloud.google.com](https://console.cloud.google.com), scope `gmail.readonly`, redirect URI `http://localhost:5199/api/gmail/callback` for local dev):
+
+```bash
+cd api/CareerConnect.Api
+dotnet user-secrets set "Gmail:ClientId" "YOUR_CLIENT_ID"
+dotnet user-secrets set "Gmail:ClientSecret" "YOUR_CLIENT_SECRET"
+```
+
+Without these, everything else runs normally and Gmail endpoints return a 503 explaining what's missing.
+
+## Deploying (Railway)
+
+The app ships as a single Docker image (`Dockerfile` at the repo root) — the API serves the built React client as static files, so there's one deployed service, one URL, and no CORS configuration needed in production.
+
+1. **Push this repo to GitHub** if it isn't already (Railway deploys from a repo).
+2. **Create a Railway project** at [railway.com](https://railway.com) and add a service from your GitHub repo — Railway detects the root `Dockerfile` automatically.
+3. **Add a Postgres database** to the same Railway project (`+ New` → `Database` → `PostgreSQL`). Railway injects a `DATABASE_URL` env var into the project automatically; `PostgresConnectionString.Resolve` (in `Data/PostgresConnectionString.cs`) reads it and converts it to Npgsql's format. If your Railway Postgres plugin exposes a different variable name, set `ConnectionStrings__Default` directly instead (Npgsql format) — this takes priority.
+4. **Add a volume** for the Data Protection key ring (`+ New` → `Volume`, mount path e.g. `/data`) and set `DataProtection__KeysPath=/data/keys`. This persists the key that encrypts the stored Gmail refresh token across redeploys — without it, every redeploy generates a fresh key and silently breaks any existing Gmail connection.
+5. **Set environment variables** on the service (Railway dashboard → Variables):
+
+   | Variable | Value |
+   |---|---|
+   | `Jwt__Key` | A long random secret (e.g. `openssl rand -base64 48`) — never reuse the dev value from `appsettings.Development.json` |
+   | `Seed__Email` / `Seed__Password` | Your real login for this deployed instance — **do not** reuse the dev seed credentials |
+   | `ANTHROPIC_API_KEY` | Your Claude API key (optional — match scoring/email classification stay disabled without it) |
+   | `Gmail__ClientId` / `Gmail__ClientSecret` | Your Google OAuth client (optional — Gmail features stay disabled without it) |
+   | `Gmail__RedirectUri` | `https://<your-railway-domain>/api/gmail/callback` |
+   | `DataProtection__KeysPath` | `/data/keys` (from step 4) |
+
+   `App__ClientOrigin` and `Cors__AllowedOrigins` should stay **unset** in production — the client is same-origin with the API, so neither is needed.
+
+6. **Register the production redirect URI with Google.** In Google Cloud Console, on the same OAuth client used for local dev, add `https://<your-railway-domain>/api/gmail/callback` to "Authorized redirect URIs" alongside the existing localhost one — don't replace it, or local dev's Gmail connect stops working.
+7. **Deploy.** Railway builds the `Dockerfile` and starts the container; `DbSeeder` migrates the database and seeds your login user on first boot. Watch the deploy logs for the `Now listening on` line, then open the Railway-assigned domain and sign in with the `Seed__Email` / `Seed__Password` you set in step 5.
+
+Redeploys are safe to run repeatedly — migrations only apply what's new, and the seeder skips creating the user if it already exists.
 
 ## Design decisions
 
