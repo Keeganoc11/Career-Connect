@@ -35,6 +35,9 @@ builder.Services.AddScoped<IJobPostingIngestService, JobPostingIngestService>();
 builder.Services.AddSingleton<IResumeTailorer, ClaudeResumeTailorer>();
 builder.Services.AddScoped<IResumeTailorService, ResumeTailorService>();
 
+builder.Services.AddSingleton<ICopilotAnalyzer, ClaudeCopilotAnalyzer>();
+builder.Services.AddScoped<ICopilotService, CopilotService>();
+
 // Encrypts the stored Gmail refresh token (see GmailOAuthService). Without a
 // persisted key ring, a container redeploy generates a new one and silently
 // strands every previously-stored token — set DataProtection:KeysPath to a

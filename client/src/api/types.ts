@@ -136,6 +136,18 @@ export interface JobPostingExtraction {
   jobDescriptionText: string
 }
 
+export interface CopilotAction {
+  title: string
+  detail: string
+  priority: 'high' | 'medium' | 'low'
+  applicationId: string | null
+}
+
+export interface CopilotInsights {
+  overallSummary: string
+  actions: CopilotAction[]
+}
+
 export interface LoginResponse {
   token: string
   email: string

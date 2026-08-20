@@ -4,6 +4,7 @@ import type {
   Application,
   ApplicationInput,
   ApplicationStatus,
+  CopilotInsights,
   GmailConnectionStatus,
   GmailScanResult,
   MatchResult,
@@ -18,6 +19,7 @@ import { ApplicationsTable } from '../components/ApplicationsTable'
 import { ApplicationFormModal } from '../components/ApplicationFormModal'
 import { MatchDetailModal } from '../components/MatchDetailModal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { CopilotPanel } from '../components/CopilotPanel'
 import { GmailConnectControl } from '../components/GmailConnectControl'
 import { GmailSuggestionsModal } from '../components/GmailSuggestionsModal'
 import { useApiErrorHandler } from '../lib/useApiErrorHandler'
@@ -46,6 +48,10 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [gmailScanning, setGmailScanning] = useState(false)
   const [gmailBanner, setGmailBanner] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
   const [gmailScanResult, setGmailScanResult] = useState<GmailScanResult | null>(null)
+
+  const [copilotInsights, setCopilotInsights] = useState<CopilotInsights | null>(null)
+  const [copilotLoading, setCopilotLoading] = useState(false)
+  const [copilotError, setCopilotError] = useState<string | null>(null)
 
   const handleError = useApiErrorHandler(onLoggedOut, setLoadError)
 
@@ -156,6 +162,35 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
       dateApplied: suggestion.emailReceivedAtUtc.slice(0, 10),
     })
     setFormTarget('new')
+  }
+
+  const getCopilotInsights = async () => {
+    setCopilotLoading(true)
+    setCopilotError(null)
+    try {
+      setCopilotInsights(await api.getCopilotInsights())
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        handleError(e)
+      } else {
+        setCopilotError(e instanceof Error ? e.message : 'Could not get insights.')
+      }
+    } finally {
+      setCopilotLoading(false)
+    }
+  }
+
+  const dismissCopilot = () => {
+    setCopilotInsights(null)
+    setCopilotError(null)
+  }
+
+  const openApplicationFromCopilot = (application: Application) => {
+    if (matches[application.id]) {
+      setMatchTarget(application)
+    } else {
+      setFormTarget(application)
+    }
   }
 
   const visible = useMemo(() => {
@@ -278,6 +313,16 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
             onFilterChange={setStatusFilter}
           />
         )}
+
+        <CopilotPanel
+          insights={copilotInsights}
+          loading={copilotLoading}
+          error={copilotError}
+          applications={applications}
+          onAnalyze={() => void getCopilotInsights()}
+          onDismiss={dismissCopilot}
+          onOpenApplication={openApplicationFromCopilot}
+        />
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">

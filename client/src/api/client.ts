@@ -2,6 +2,7 @@ import type {
   Application,
   ApplicationInput,
   ApplicationStatus,
+  CopilotInsights,
   GmailConnectionStatus,
   GmailScanResult,
   JobPostingExtraction,
@@ -227,5 +228,9 @@ export const api = {
 
   scanGmail() {
     return request<GmailScanResult>('/api/gmail/scan', { method: 'POST' })
+  },
+
+  getCopilotInsights() {
+    return request<CopilotInsights>('/api/copilot/analyze', { method: 'POST' })
   },
 }
