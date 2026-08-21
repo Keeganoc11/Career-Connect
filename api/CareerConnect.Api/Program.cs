@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using CareerConnect.Api.Data;
 using CareerConnect.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -82,6 +83,22 @@ builder.Services
     });
 builder.Services.AddAuthorization();
 
+// Registration/login are the one surface an anonymous caller can hit
+// repeatedly — cap it per IP so credential stuffing or signup spam can't
+// hammer the password hasher or fill the Users table.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("auth", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+        }));
+});
+
 // In production the client is served by this same app (see UseStaticFiles /
 // MapFallbackToFile below), so there's no cross-origin call to allow. CORS is
 // only needed in local dev, where the Vite dev server runs on its own origin
@@ -145,6 +162,7 @@ if (allowedOrigins.Length > 0)
     app.UseCors("client");
 }
 
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

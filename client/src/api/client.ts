@@ -117,6 +117,13 @@ export const api = {
     })
   },
 
+  register(email: string, password: string, displayName?: string) {
+    return request<LoginResponse>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, displayName: displayName || undefined }),
+    })
+  },
+
   listApplications() {
     return request<Application[]>('/api/applications')
   },

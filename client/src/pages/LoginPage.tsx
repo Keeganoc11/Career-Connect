@@ -12,24 +12,37 @@ const highlights = [
 ]
 
 export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
+  const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [displayName, setDisplayName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const switchMode = (next: 'login' | 'register') => {
+    setMode(next)
+    setError(null)
+  }
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      auth.save(await api.login(email, password))
+      auth.save(mode === 'login' ? await api.login(email, password) : await api.register(email, password, displayName))
       onLoggedIn()
     } catch (e) {
-      setError(
-        e instanceof ApiError && e.status === 401
-          ? 'Invalid email or password.'
-          : 'Could not reach the server. Is the API running on port 5199?',
-      )
+      if (e instanceof ApiError && e.status === 401) {
+        setError('Invalid email or password.')
+      } else if (e instanceof ApiError && e.status === 409) {
+        setError('An account with that email already exists.')
+      } else if (e instanceof ApiError && e.status === 429) {
+        setError('Too many attempts — wait a minute and try again.')
+      } else if (e instanceof ApiError && e.status !== 0) {
+        setError(e.message)
+      } else {
+        setError('Could not reach the server. Is the API running on port 5199?')
+      }
       setBusy(false)
     }
   }
@@ -82,10 +95,28 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
             <BrandMark size="lg" />
           </div>
 
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900">Welcome back</h2>
-          <p className="mt-2 text-base text-slate-500">Sign in to pick up where you left off.</p>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+            {mode === 'login' ? 'Welcome back' : 'Create your account'}
+          </h2>
+          <p className="mt-2 text-base text-slate-500">
+            {mode === 'login' ? 'Sign in to pick up where you left off.' : 'Track your job search in one place.'}
+          </p>
 
           <form onSubmit={submit} className="mt-8">
+            {mode === 'register' && (
+              <label className="mb-5 block">
+                <span className="mb-1.5 block text-sm font-semibold text-slate-700">Name (optional)</span>
+                <input
+                  className={inputClass}
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  maxLength={200}
+                  autoFocus
+                />
+              </label>
+            )}
+
             <label className="block">
               <span className="mb-1.5 block text-sm font-semibold text-slate-700">Email</span>
               <input
@@ -94,7 +125,7 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                autoFocus
+                autoFocus={mode === 'login'}
               />
             </label>
 
@@ -106,7 +137,11 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                minLength={mode === 'register' ? 8 : undefined}
               />
+              {mode === 'register' && (
+                <span className="mt-1.5 block text-xs text-slate-400">At least 8 characters.</span>
+              )}
             </label>
 
             {error && (
@@ -120,8 +155,26 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
               disabled={busy}
               className="brand-gradient mt-7 w-full rounded-xl px-4 py-3.5 text-base font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:opacity-95 disabled:opacity-60"
             >
-              {busy ? 'Signing in…' : 'Sign in'}
+              {busy ? (mode === 'login' ? 'Signing in…' : 'Creating account…') : mode === 'login' ? 'Sign in' : 'Create account'}
             </button>
+
+            <p className="mt-5 text-center text-sm text-slate-500">
+              {mode === 'login' ? (
+                <>
+                  New here?{' '}
+                  <button type="button" onClick={() => switchMode('register')} className="font-semibold text-brand-600 hover:underline">
+                    Create an account
+                  </button>
+                </>
+              ) : (
+                <>
+                  Already have an account?{' '}
+                  <button type="button" onClick={() => switchMode('login')} className="font-semibold text-brand-600 hover:underline">
+                    Sign in
+                  </button>
+                </>
+              )}
+            </p>
           </form>
         </div>
       </section>
