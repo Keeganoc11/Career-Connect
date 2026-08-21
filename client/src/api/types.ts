@@ -149,6 +149,21 @@ export interface CopilotInsights {
   actions: CopilotAction[]
 }
 
+export interface InterviewQuestion {
+  question: string
+  whyItMightComeUp: string
+}
+
+export interface TalkingPoint {
+  point: string
+  howToUseIt: string
+}
+
+export interface InterviewPrep {
+  questions: InterviewQuestion[]
+  talkingPoints: TalkingPoint[]
+}
+
 export interface LoginResponse {
   token: string
   email: string

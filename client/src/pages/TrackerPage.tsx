@@ -18,6 +18,7 @@ import { SummaryBar } from '../components/SummaryBar'
 import { ApplicationsTable } from '../components/ApplicationsTable'
 import { ApplicationFormModal } from '../components/ApplicationFormModal'
 import { MatchDetailModal } from '../components/MatchDetailModal'
+import { AiToolsModal } from '../components/AiToolsModal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { CopilotPanel } from '../components/CopilotPanel'
 import { GmailConnectControl } from '../components/GmailConnectControl'
@@ -37,6 +38,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [scoringId, setScoringId] = useState<string | null>(null)
   const [scoreError, setScoreError] = useState<string | null>(null)
   const [matchTarget, setMatchTarget] = useState<Application | null>(null)
+  const [toolsTarget, setToolsTarget] = useState<Application | null>(null)
   const [resumes, setResumes] = useState<ResumeSummary[]>([])
   const [tailoring, setTailoring] = useState(false)
   const [formTarget, setFormTarget] = useState<Application | null | 'new'>(null)
@@ -459,6 +461,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
             onStatusChange={changeStatus}
             onScore={(application) => void score(application)}
             onOpenMatch={(application) => setMatchTarget(application)}
+            onOpenTools={(application) => setToolsTarget(application)}
             onEdit={(application) => setFormTarget(application)}
             onDelete={(application) => setDeleteTarget(application)}
           />
@@ -487,6 +490,10 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
           onTailorAndRescore={tailorAndRescore}
           onClose={() => setMatchTarget(null)}
         />
+      )}
+
+      {toolsTarget && (
+        <AiToolsModal application={toolsTarget} onClose={() => setToolsTarget(null)} />
       )}
 
       {formTarget !== null && (

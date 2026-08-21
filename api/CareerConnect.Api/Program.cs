@@ -35,6 +35,12 @@ builder.Services.AddScoped<IJobPostingIngestService, JobPostingIngestService>();
 builder.Services.AddSingleton<IResumeTailorer, ClaudeResumeTailorer>();
 builder.Services.AddScoped<IResumeTailorService, ResumeTailorService>();
 
+builder.Services.AddSingleton<ICoverLetterGenerator, ClaudeCoverLetterGenerator>();
+builder.Services.AddScoped<ICoverLetterService, CoverLetterService>();
+
+builder.Services.AddSingleton<IInterviewPrepGenerator, ClaudeInterviewPrepGenerator>();
+builder.Services.AddScoped<IInterviewPrepService, InterviewPrepService>();
+
 builder.Services.AddSingleton<ICopilotAnalyzer, ClaudeCopilotAnalyzer>();
 builder.Services.AddScoped<ICopilotService, CopilotService>();
 

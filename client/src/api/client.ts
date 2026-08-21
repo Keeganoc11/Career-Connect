@@ -5,6 +5,7 @@ import type {
   CopilotInsights,
   GmailConnectionStatus,
   GmailScanResult,
+  InterviewPrep,
   JobPostingExtraction,
   LoginResponse,
   MatchResult,
@@ -210,6 +211,18 @@ export const api = {
     return request<{ content: string }>(`/api/applications/${applicationId}/tailor-resume`, {
       method: 'POST',
       body: JSON.stringify({ resumeContent }),
+    })
+  },
+
+  generateCoverLetter(applicationId: string) {
+    return request<{ content: string }>(`/api/applications/${applicationId}/cover-letter`, {
+      method: 'POST',
+    })
+  },
+
+  generateInterviewPrep(applicationId: string) {
+    return request<InterviewPrep>(`/api/applications/${applicationId}/interview-prep`, {
+      method: 'POST',
     })
   },
 

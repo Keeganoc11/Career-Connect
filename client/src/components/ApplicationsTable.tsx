@@ -15,6 +15,7 @@ interface Props {
   onStatusChange: (id: string, status: ApplicationStatus) => void
   onScore: (application: Application) => void
   onOpenMatch: (application: Application) => void
+  onOpenTools: (application: Application) => void
   onEdit: (application: Application) => void
   onDelete: (application: Application) => void
 }
@@ -35,6 +36,7 @@ export function ApplicationsTable({
   onStatusChange,
   onScore,
   onOpenMatch,
+  onOpenTools,
   onEdit,
   onDelete,
 }: Props) {
@@ -152,6 +154,13 @@ export function ApplicationsTable({
               </td>
               <td className="px-5 py-4 text-right whitespace-nowrap">
                 <div className="flex justify-end gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                  <button
+                    type="button"
+                    onClick={() => onOpenTools(application)}
+                    className="rounded-lg px-3 py-1.5 text-sm font-semibold text-brand-600 hover:bg-brand-50"
+                  >
+                    ✨ AI tools
+                  </button>
                   <button
                     type="button"
                     onClick={() => onEdit(application)}

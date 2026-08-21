@@ -12,7 +12,9 @@ public class ApplicationsController(
     IApplicationService applications,
     IMatchScoringService matches,
     IJobPostingIngestService jobPostings,
-    IResumeTailorService resumeTailor) : ApiControllerBase
+    IResumeTailorService resumeTailor,
+    ICoverLetterService coverLetters,
+    IInterviewPrepService interviewPrep) : ApiControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<ApplicationResponse>>> List() =>
@@ -194,6 +196,90 @@ public class ApplicationsController(
                 }),
 
             TailorOutcome.Failed failed
+                => StatusCode(StatusCodes.Status502BadGateway, new ProblemDetails
+                {
+                    Title = failed.Message,
+                    Status = StatusCodes.Status502BadGateway,
+                }),
+
+            _ => StatusCode(StatusCodes.Status500InternalServerError),
+        };
+    }
+
+    /// <summary>Generates a cover letter for this application against its active resume. Saves nothing.</summary>
+    [HttpPost("{id:guid}/cover-letter")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<CoverLetterResponse>> GenerateCoverLetter(Guid id, CancellationToken cancellationToken)
+    {
+        var outcome = await coverLetters.GenerateAsync(UserId, id, cancellationToken);
+
+        return outcome switch
+        {
+            CoverLetterOutcome.Success success => Ok(new CoverLetterResponse { Content = success.Content }),
+
+            CoverLetterOutcome.Failed { Reason: CoverLetterFailureReason.ApplicationNotFound } => NotFound(),
+
+            CoverLetterOutcome.Failed failed and
+                { Reason: CoverLetterFailureReason.NoJobDescription or CoverLetterFailureReason.NoActiveResume }
+                => Conflict(new ProblemDetails { Title = failed.Message, Status = StatusCodes.Status409Conflict }),
+
+            CoverLetterOutcome.Failed failed and { Reason: CoverLetterFailureReason.GeneratorUnavailable }
+                => StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails
+                {
+                    Title = failed.Message,
+                    Status = StatusCodes.Status503ServiceUnavailable,
+                }),
+
+            CoverLetterOutcome.Failed failed
+                => StatusCode(StatusCodes.Status502BadGateway, new ProblemDetails
+                {
+                    Title = failed.Message,
+                    Status = StatusCodes.Status502BadGateway,
+                }),
+
+            _ => StatusCode(StatusCodes.Status500InternalServerError),
+        };
+    }
+
+    /// <summary>Generates interview questions and talking points for this application against its active resume. Saves nothing.</summary>
+    [HttpPost("{id:guid}/interview-prep")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<InterviewPrepResponse>> GenerateInterviewPrep(Guid id, CancellationToken cancellationToken)
+    {
+        var outcome = await interviewPrep.GenerateAsync(UserId, id, cancellationToken);
+
+        return outcome switch
+        {
+            InterviewPrepOutcome.Success success => Ok(new InterviewPrepResponse
+            {
+                Questions = success.Prep.Questions
+                    .Select(q => new InterviewQuestionResponse { Question = q.Question, WhyItMightComeUp = q.WhyItMightComeUp })
+                    .ToList(),
+                TalkingPoints = success.Prep.TalkingPoints
+                    .Select(t => new TalkingPointResponse { Point = t.Point, HowToUseIt = t.HowToUseIt })
+                    .ToList(),
+            }),
+
+            InterviewPrepOutcome.Failed { Reason: InterviewPrepFailureReason.ApplicationNotFound } => NotFound(),
+
+            InterviewPrepOutcome.Failed failed and
+                { Reason: InterviewPrepFailureReason.NoJobDescription or InterviewPrepFailureReason.NoActiveResume }
+                => Conflict(new ProblemDetails { Title = failed.Message, Status = StatusCodes.Status409Conflict }),
+
+            InterviewPrepOutcome.Failed failed and { Reason: InterviewPrepFailureReason.GeneratorUnavailable }
+                => StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails
+                {
+                    Title = failed.Message,
+                    Status = StatusCodes.Status503ServiceUnavailable,
+                }),
+
+            InterviewPrepOutcome.Failed failed
                 => StatusCode(StatusCodes.Status502BadGateway, new ProblemDetails
                 {
                     Title = failed.Message,
