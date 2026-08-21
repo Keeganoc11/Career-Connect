@@ -73,8 +73,8 @@ export function ApplicationsTable({
   }
 
   return (
-    <div className="overflow-visible rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-      <table className="w-full text-left">
+    <div className="overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+      <table className="w-full min-w-[640px] text-left">
         <thead>
           <tr className="border-b-2 border-slate-100">
             {columns.map((column) => {
