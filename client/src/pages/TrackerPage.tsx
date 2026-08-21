@@ -81,7 +81,17 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   const loadGmailStatus = useCallback(async () => {
     try {
-      setGmailStatus(await api.getGmailStatus())
+      const status = await api.getGmailStatus()
+      setGmailStatus(status)
+
+      // A scheduled background scan found something since we last checked —
+      // show it the same way a manual scan's results would appear.
+      if (status.hasPendingSuggestions) {
+        const pending = await api.getPendingGmailSuggestions()
+        if (pending) {
+          setGmailScanResult(pending)
+        }
+      }
     } catch (e) {
       handleError(e)
     }

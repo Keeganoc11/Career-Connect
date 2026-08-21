@@ -1,3 +1,5 @@
+using System.Text.Json;
+using CareerConnect.Api.Contracts;
 using CareerConnect.Api.Data;
 using CareerConnect.Api.Domain;
 using Google.Apis.Auth.OAuth2;
@@ -136,7 +138,9 @@ public class GmailOAuthService : IGmailOAuthService
         }
 
         await _db.SaveChangesAsync(cancellationToken);
-        return new GmailConnectionInfo(connection.ConnectedEmail, connection.ConnectedAtUtc, connection.LastCheckedAtUtc);
+        return new GmailConnectionInfo(
+            connection.ConnectedEmail, connection.ConnectedAtUtc, connection.LastCheckedAtUtc,
+            connection.PendingScanResultJson is not null);
     }
 
     public async Task<GmailConnectionInfo?> GetConnectionAsync(Guid userId, CancellationToken cancellationToken = default)
@@ -145,7 +149,9 @@ public class GmailOAuthService : IGmailOAuthService
             .FirstOrDefaultAsync(g => g.UserId == userId, cancellationToken);
         return connection is null
             ? null
-            : new GmailConnectionInfo(connection.ConnectedEmail, connection.ConnectedAtUtc, connection.LastCheckedAtUtc);
+            : new GmailConnectionInfo(
+                connection.ConnectedEmail, connection.ConnectedAtUtc, connection.LastCheckedAtUtc,
+                connection.PendingScanResultJson is not null);
     }
 
     public async Task DisconnectAsync(Guid userId, CancellationToken cancellationToken = default)
@@ -170,6 +176,22 @@ public class GmailOAuthService : IGmailOAuthService
 
         connection.LastCheckedAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<GmailScanResponse?> GetAndClearPendingSuggestionsAsync(
+        Guid userId, CancellationToken cancellationToken = default)
+    {
+        var connection = await _db.GmailConnections.FirstOrDefaultAsync(g => g.UserId == userId, cancellationToken);
+        if (connection?.PendingScanResultJson is null)
+        {
+            return null;
+        }
+
+        var result = JsonSerializer.Deserialize<GmailScanResponse>(connection.PendingScanResultJson);
+        connection.PendingScanResultJson = null;
+        connection.PendingScanCompletedAtUtc = null;
+        await _db.SaveChangesAsync(cancellationToken);
+        return result;
     }
 
     public async Task<GmailService?> GetGmailServiceAsync(Guid userId, CancellationToken cancellationToken = default)

@@ -150,13 +150,15 @@ dotnet user-secrets set "Gmail:ClientSecret" "YOUR_CLIENT_SECRET"
 
 Without these, everything else runs normally and Gmail endpoints return a 503 explaining what's missing.
 
+Once connected, Gmail is scanned automatically in the background (not just when you click "Check for updates") — once a day by default. Override with `Gmail:ScanIntervalHours` (set to `0` to disable). Findings are stored and surfaced the next time you open the app, same review-before-accept flow as a manual scan — nothing is ever applied automatically.
+
 ## Deploying (Railway)
 
 The app ships as a single Docker image (`Dockerfile` at the repo root) — the API serves the built React client as static files, so there's one deployed service, one URL, and no CORS configuration needed in production.
 
 1. **Push this repo to GitHub** if it isn't already (Railway deploys from a repo).
 2. **Create a Railway project** at [railway.com](https://railway.com) and add a service from your GitHub repo — Railway detects the root `Dockerfile` automatically.
-3. **Add a Postgres database** to the same Railway project (`+ New` → `Database` → `PostgreSQL`). Railway injects a `DATABASE_URL` env var into the project automatically; `PostgresConnectionString.Resolve` (in `Data/PostgresConnectionString.cs`) reads it and converts it to Npgsql's format. If your Railway Postgres plugin exposes a different variable name, set `ConnectionStrings__Default` directly instead (Npgsql format) — this takes priority.
+3. **Add a Postgres database** to the same Railway project (`+ New` → `Database` → `PostgreSQL`). Railway does **not** auto-inject that service's variables into your API service — on the API service's Variables tab, add `DATABASE_URL` with value `${{Postgres.DATABASE_URL}}` (use whatever your Postgres service is actually named in the reference). `PostgresConnectionString.Resolve` (in `Data/PostgresConnectionString.cs`) reads that env var and converts it to Npgsql's format. If you'd rather supply a connection string directly, set `ConnectionStrings__Default` instead (Npgsql format, not the `postgres://` URI shape) — this takes priority over `DATABASE_URL`.
 4. **Add a volume** for the Data Protection key ring (`+ New` → `Volume`, mount path e.g. `/data`) and set `DataProtection__KeysPath=/data/keys`. This persists the key that encrypts the stored Gmail refresh token across redeploys — without it, every redeploy generates a fresh key and silently breaks any existing Gmail connection.
 5. **Set environment variables** on the service (Railway dashboard → Variables):
 

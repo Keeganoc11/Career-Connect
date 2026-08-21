@@ -118,7 +118,19 @@ public class GmailController(
                 ConnectedEmail = connection.ConnectedEmail,
                 ConnectedAtUtc = connection.ConnectedAtUtc,
                 LastCheckedAtUtc = connection.LastCheckedAtUtc,
+                HasPendingSuggestions = connection.HasPendingSuggestions,
             });
+    }
+
+    /// <summary>Returns whatever the last scheduled background scan found, then clears it — single-consumption, like a notification you've now seen.</summary>
+    [HttpGet("pending-suggestions")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<ActionResult<GmailScanResponse>> PendingSuggestions()
+    {
+        var result = await oauth.GetAndClearPendingSuggestionsAsync(UserId);
+        return result is null ? NoContent() : Ok(result);
     }
 
     [HttpDelete("connection")]

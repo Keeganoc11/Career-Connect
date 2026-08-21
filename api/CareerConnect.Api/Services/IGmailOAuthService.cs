@@ -1,8 +1,10 @@
+using CareerConnect.Api.Contracts;
 using Google.Apis.Gmail.v1;
 
 namespace CareerConnect.Api.Services;
 
-public record GmailConnectionInfo(string ConnectedEmail, DateTime ConnectedAtUtc, DateTime? LastCheckedAtUtc);
+public record GmailConnectionInfo(
+    string ConnectedEmail, DateTime ConnectedAtUtc, DateTime? LastCheckedAtUtc, bool HasPendingSuggestions);
 
 /// <summary>
 /// Owns the Gmail OAuth lifecycle: building the consent URL, exchanging the
@@ -25,6 +27,9 @@ public interface IGmailOAuthService
     Task DisconnectAsync(Guid userId, CancellationToken cancellationToken = default);
 
     Task MarkCheckedAsync(Guid userId, CancellationToken cancellationToken = default);
+
+    /// <summary>Returns and clears whatever a scheduled background scan found since it was last read. Null if nothing's pending.</summary>
+    Task<GmailScanResponse?> GetAndClearPendingSuggestionsAsync(Guid userId, CancellationToken cancellationToken = default);
 
     /// <summary>An authenticated Gmail client for this user, or null if not connected.</summary>
     Task<GmailService?> GetGmailServiceAsync(Guid userId, CancellationToken cancellationToken = default);

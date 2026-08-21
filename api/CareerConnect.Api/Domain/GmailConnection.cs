@@ -19,5 +19,15 @@ public class GmailConnection
     /// <summary>Watermark for the next scan's Gmail query — null before the first scan.</summary>
     public DateTime? LastCheckedAtUtc { get; set; }
 
+    /// <summary>
+    /// A GmailScanResponse, JSON-serialized, waiting for the user to see it —
+    /// written by the background scan, read (and cleared) once by
+    /// GET /api/gmail/pending-suggestions. Null when there's nothing pending.
+    /// Opaque at this layer on purpose: Domain doesn't reference Contracts.
+    /// </summary>
+    public string? PendingScanResultJson { get; set; }
+
+    public DateTime? PendingScanCompletedAtUtc { get; set; }
+
     public User User { get; set; } = null!;
 }

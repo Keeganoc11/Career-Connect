@@ -102,6 +102,7 @@ export interface GmailConnectionStatus {
   connectedEmail?: string
   connectedAtUtc?: string
   lastCheckedAtUtc?: string
+  hasPendingSuggestions: boolean
 }
 
 export interface SuggestedStatusUpdate {

@@ -1,3 +1,4 @@
+using CareerConnect.Api.Contracts;
 using CareerConnect.Api.Services;
 using Google.Apis.Gmail.v1;
 
@@ -14,7 +15,9 @@ public sealed class FakeGmailOAuthService : IGmailOAuthService
 
     /// <summary>Null simulates "not connected".</summary>
     public GmailConnectionInfo? Connection { get; set; } =
-        new("me@example.com", DateTime.UtcNow.AddDays(-10), LastCheckedAtUtc: null);
+        new("me@example.com", DateTime.UtcNow.AddDays(-10), LastCheckedAtUtc: null, HasPendingSuggestions: false);
+
+    public GmailScanResponse? PendingSuggestions { get; set; }
 
     public int MarkCheckedCallCount { get; private set; }
 
@@ -24,7 +27,7 @@ public sealed class FakeGmailOAuthService : IGmailOAuthService
     public Task<GmailConnectionInfo> ConnectAsync(
         Guid userId, string code, string redirectUri, CancellationToken cancellationToken = default)
     {
-        Connection = new GmailConnectionInfo("me@example.com", DateTime.UtcNow, LastCheckedAtUtc: null);
+        Connection = new GmailConnectionInfo("me@example.com", DateTime.UtcNow, LastCheckedAtUtc: null, HasPendingSuggestions: false);
         return Task.FromResult(Connection);
     }
 
@@ -50,4 +53,11 @@ public sealed class FakeGmailOAuthService : IGmailOAuthService
     public Task<GmailService?> GetGmailServiceAsync(Guid userId, CancellationToken cancellationToken = default) =>
         throw new InvalidOperationException(
             "The scanner should go through IGmailMailReader, not call this directly.");
+
+    public Task<GmailScanResponse?> GetAndClearPendingSuggestionsAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var result = PendingSuggestions;
+        PendingSuggestions = null;
+        return Task.FromResult(result);
+    }
 }

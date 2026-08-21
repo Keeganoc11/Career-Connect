@@ -54,6 +54,9 @@ builder.Services.AddScoped<IGmailMailReader, GmailMailReader>();
 builder.Services.AddScoped<IGmailUpdateScanner, GmailUpdateScanner>();
 builder.Services.AddSingleton<IEmailStatusClassifier, ClaudeEmailStatusClassifier>();
 
+builder.Services.AddScoped<IScheduledGmailScanRunner, ScheduledGmailScanRunner>();
+builder.Services.AddHostedService<GmailBackgroundScanService>();
+
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

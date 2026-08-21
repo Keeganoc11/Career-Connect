@@ -230,6 +230,11 @@ export const api = {
     return request<GmailScanResult>('/api/gmail/scan', { method: 'POST' })
   },
 
+  /** Whatever the last scheduled background scan found, if anything — undefined if nothing's pending. */
+  getPendingGmailSuggestions() {
+    return request<GmailScanResult | undefined>('/api/gmail/pending-suggestions')
+  },
+
   getCopilotInsights() {
     return request<CopilotInsights>('/api/copilot/analyze', { method: 'POST' })
   },

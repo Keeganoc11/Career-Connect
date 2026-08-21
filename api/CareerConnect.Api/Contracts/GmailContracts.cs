@@ -8,6 +8,7 @@ public class GmailConnectionResponse
     public string? ConnectedEmail { get; init; }
     public DateTime? ConnectedAtUtc { get; init; }
     public DateTime? LastCheckedAtUtc { get; init; }
+    public bool HasPendingSuggestions { get; init; }
 }
 
 public class GmailAuthorizationUrlResponse
