@@ -27,10 +27,10 @@ export function GmailConnectControl({ status, scanning, onConnect, onScan, onDis
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white py-1 pr-1 pl-3">
-      <div className="text-sm">
-        <span className="font-semibold text-slate-700">{status.connectedEmail}</span>
-        <span className="ml-1.5 text-slate-400">
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white py-1 pr-1 pl-3">
+      <div className="min-w-0 text-sm">
+        <span className="font-semibold break-all text-slate-700">{status.connectedEmail}</span>
+        <span className="ml-1.5 whitespace-nowrap text-slate-400">
           {status.lastCheckedAtUtc
             ? `checked ${formatRelative(status.lastCheckedAtUtc)}`
             : 'never checked'}
@@ -40,7 +40,7 @@ export function GmailConnectControl({ status, scanning, onConnect, onScan, onDis
         type="button"
         onClick={onScan}
         disabled={scanning}
-        className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60"
+        className="shrink-0 rounded-md bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60"
       >
         {scanning ? 'Checking…' : 'Check for updates'}
       </button>
@@ -49,7 +49,7 @@ export function GmailConnectControl({ status, scanning, onConnect, onScan, onDis
         onClick={onDisconnect}
         title="Disconnect Gmail"
         aria-label="Disconnect Gmail"
-        className="rounded-md px-2 py-1.5 text-sm font-medium text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+        className="shrink-0 rounded-md px-2 py-1.5 text-sm font-medium text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
       >
         ✕
       </button>
