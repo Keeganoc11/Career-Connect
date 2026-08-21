@@ -119,7 +119,7 @@ export function AppShell({ view, onViewChange, onSignOut, children }: Props) {
             <span className="font-semibold text-slate-700">Career Connect</span> — built with
             ASP.NET&nbsp;Core, React, and Claude.
           </span>
-          <span className="text-slate-400">Your data stays on this machine.</span>
+          <span className="text-slate-400">Your data is private to your account.</span>
         </div>
       </footer>
     </div>

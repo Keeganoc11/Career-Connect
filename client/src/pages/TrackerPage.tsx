@@ -50,6 +50,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [gmailScanning, setGmailScanning] = useState(false)
   const [gmailBanner, setGmailBanner] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
   const [gmailScanResult, setGmailScanResult] = useState<GmailScanResult | null>(null)
+  const [reviewingGmailSuggestion, setReviewingGmailSuggestion] = useState<SuggestedNewApplication | null>(null)
 
   const [copilotInsights, setCopilotInsights] = useState<CopilotInsights | null>(null)
   const [copilotLoading, setCopilotLoading] = useState(false)
@@ -163,8 +164,29 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
   }
 
+  // Only drop a suggestion from the list once the thing it promised actually
+  // happened — not the moment the user clicks toward it. Otherwise
+  // cancelling out of the follow-up form (or a failed status change) would
+  // silently discard a suggestion the user never actually acted on.
   const acceptGmailSuggestion = async (suggestion: SuggestedStatusUpdate) => {
-    await changeStatus(suggestion.applicationId, suggestion.suggestedStatus)
+    const succeeded = await changeStatus(suggestion.applicationId, suggestion.suggestedStatus)
+    if (succeeded) {
+      setGmailScanResult((current) =>
+        current && { ...current, statusUpdates: current.statusUpdates.filter((s) => s !== suggestion) },
+      )
+    }
+  }
+
+  const dismissGmailStatusUpdate = (suggestion: SuggestedStatusUpdate) => {
+    setGmailScanResult((current) =>
+      current && { ...current, statusUpdates: current.statusUpdates.filter((s) => s !== suggestion) },
+    )
+  }
+
+  const dismissGmailNewApplication = (suggestion: SuggestedNewApplication) => {
+    setGmailScanResult((current) =>
+      current && { ...current, newApplications: current.newApplications.filter((s) => s !== suggestion) },
+    )
   }
 
   const reviewNewApplicationFromGmail = (suggestion: SuggestedNewApplication) => {
@@ -173,6 +195,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
       roleTitle: suggestion.roleTitle,
       dateApplied: suggestion.emailReceivedAtUtc.slice(0, 10),
     })
+    setReviewingGmailSuggestion(suggestion)
     setFormTarget('new')
   }
 
@@ -216,13 +239,15 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
     )
   }, [applications, statusFilter, search])
 
-  const changeStatus = async (id: string, status: ApplicationStatus) => {
+  const changeStatus = async (id: string, status: ApplicationStatus): Promise<boolean> => {
     setBusyId(id)
     try {
       await api.updateStatus(id, status)
       await refresh()
+      return true
     } catch (e) {
       handleError(e)
+      return false
     } finally {
       setBusyId(null)
     }
@@ -277,6 +302,13 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
     } else if (formTarget) {
       await api.updateApplication(formTarget.id, input)
     }
+    if (reviewingGmailSuggestion) {
+      const consumed = reviewingGmailSuggestion
+      setGmailScanResult((current) =>
+        current && { ...current, newApplications: current.newApplications.filter((s) => s !== consumed) },
+      )
+      setReviewingGmailSuggestion(null)
+    }
     setFormTarget(null)
     setFormPrefill(undefined)
     await refresh()
@@ -310,6 +342,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
             type="button"
             onClick={() => {
               setFormPrefill(undefined)
+              setReviewingGmailSuggestion(null)
               setFormTarget('new')
             }}
             className="brand-gradient rounded-xl px-5 py-3 text-base font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:opacity-95"
@@ -444,6 +477,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
                 type="button"
                 onClick={() => {
                   setFormPrefill(undefined)
+                  setReviewingGmailSuggestion(null)
                   setFormTarget('new')
                 }}
                 className="brand-gradient mt-6 rounded-xl px-5 py-3 text-base font-semibold text-white shadow-lg shadow-brand-600/25"
@@ -473,7 +507,9 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
           statusUpdates={gmailScanResult.statusUpdates}
           newApplications={gmailScanResult.newApplications}
           onAcceptStatusUpdate={acceptGmailSuggestion}
+          onDismissStatusUpdate={dismissGmailStatusUpdate}
           onAddNewApplication={reviewNewApplicationFromGmail}
+          onDismissNewApplication={dismissGmailNewApplication}
           onClose={() => setGmailScanResult(null)}
         />
       )}
@@ -504,6 +540,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
           onClose={() => {
             setFormTarget(null)
             setFormPrefill(undefined)
+            setReviewingGmailSuggestion(null)
           }}
         />
       )}

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { api, auth, ApiError } from '../api/client'
+import { api, auth, ApiError, UNREACHABLE_MESSAGE } from '../api/client'
 import { BrandMark } from '../components/AppShell'
 
 const inputClass =
@@ -41,7 +41,7 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
       } else if (e instanceof ApiError && e.status !== 0) {
         setError(e.message)
       } else {
-        setError('Could not reach the server. Is the API running on port 5199?')
+        setError(UNREACHABLE_MESSAGE)
       }
       setBusy(false)
     }

@@ -8,7 +8,9 @@ interface Props {
   statusUpdates: SuggestedStatusUpdate[]
   newApplications: SuggestedNewApplication[]
   onAcceptStatusUpdate: (suggestion: SuggestedStatusUpdate) => Promise<void>
+  onDismissStatusUpdate: (suggestion: SuggestedStatusUpdate) => void
   onAddNewApplication: (suggestion: SuggestedNewApplication) => void
+  onDismissNewApplication: (suggestion: SuggestedNewApplication) => void
   onClose: () => void
 }
 
@@ -150,21 +152,14 @@ function NewApplicationRow({
 }
 
 export function GmailSuggestionsModal({
-  statusUpdates: initialStatusUpdates,
-  newApplications: initialNewApplications,
+  statusUpdates,
+  newApplications,
   onAcceptStatusUpdate,
+  onDismissStatusUpdate,
   onAddNewApplication,
+  onDismissNewApplication,
   onClose,
 }: Props) {
-  const [statusUpdates, setStatusUpdates] = useState(initialStatusUpdates)
-  const [newApplications, setNewApplications] = useState(initialNewApplications)
-
-  const removeStatusUpdate = (target: SuggestedStatusUpdate) =>
-    setStatusUpdates((current) => current.filter((s) => s !== target))
-
-  const removeNewApplication = (target: SuggestedNewApplication) =>
-    setNewApplications((current) => current.filter((s) => s !== target))
-
   const total = statusUpdates.length + newApplications.length
 
   return (
@@ -198,11 +193,8 @@ export function GmailSuggestionsModal({
                       <NewApplicationRow
                         key={`${suggestion.companyName}-${suggestion.emailSubject}`}
                         suggestion={suggestion}
-                        onAdd={() => {
-                          onAddNewApplication(suggestion)
-                          removeNewApplication(suggestion)
-                        }}
-                        onDismiss={() => removeNewApplication(suggestion)}
+                        onAdd={() => onAddNewApplication(suggestion)}
+                        onDismiss={() => onDismissNewApplication(suggestion)}
                       />
                     ))}
                   </div>
@@ -219,11 +211,8 @@ export function GmailSuggestionsModal({
                       <StatusUpdateRow
                         key={`${suggestion.applicationId}-${suggestion.emailSubject}`}
                         suggestion={suggestion}
-                        onAccept={async () => {
-                          await onAcceptStatusUpdate(suggestion)
-                          removeStatusUpdate(suggestion)
-                        }}
-                        onDismiss={() => removeStatusUpdate(suggestion)}
+                        onAccept={() => onAcceptStatusUpdate(suggestion)}
+                        onDismiss={() => onDismissStatusUpdate(suggestion)}
                       />
                     ))}
                   </div>

@@ -18,6 +18,14 @@ import type {
 const TOKEN_KEY = 'careerconnect.token'
 const EMAIL_KEY = 'careerconnect.email'
 
+// Local dev runs the API and client as separate processes on different
+// ports, so "unreachable" usually means the API terminal isn't running —
+// worth saying so. In production they're one deployed service, so the same
+// failure means something else, and a port number would just be confusing.
+export const UNREACHABLE_MESSAGE = import.meta.env.DEV
+  ? 'Can’t reach the API server. Is it running on port 5199?'
+  : 'Can’t reach the server right now. Try again in a moment.'
+
 export class ApiError extends Error {
   readonly status: number
 
@@ -85,7 +93,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // fetch only rejects on network-level failure — almost always "the API
     // isn't running". Status 0 marks it as unreachable rather than a real
     // HTTP error, so callers never confuse it with an empty result.
-    throw new ApiError(0, 'Can’t reach the API server. Is it running on port 5199?')
+    throw new ApiError(0, UNREACHABLE_MESSAGE)
   }
 
   return handleResponse<T>(response)
@@ -103,7 +111,7 @@ async function requestFile<T>(path: string, formData: FormData): Promise<T> {
   try {
     response = await fetch(path, { method: 'POST', headers, body: formData })
   } catch {
-    throw new ApiError(0, 'Can’t reach the API server. Is it running on port 5199?')
+    throw new ApiError(0, UNREACHABLE_MESSAGE)
   }
 
   return handleResponse<T>(response)
