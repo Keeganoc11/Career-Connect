@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { SuggestedNewApplication, SuggestedStatusUpdate } from '../api/types'
+import type { AutoApplied, SuggestedNewApplication, SuggestedStatusUpdate } from '../api/types'
 import { STATUS_META } from '../lib/status'
 import { formatRelative } from '../lib/format'
 import { ModalBackdrop, ModalHeader } from './Modal'
@@ -7,6 +7,7 @@ import { ModalBackdrop, ModalHeader } from './Modal'
 interface Props {
   statusUpdates: SuggestedStatusUpdate[]
   newApplications: SuggestedNewApplication[]
+  autoApplied: AutoApplied[]
   onAcceptStatusUpdate: (suggestion: SuggestedStatusUpdate) => Promise<void>
   onDismissStatusUpdate: (suggestion: SuggestedStatusUpdate) => void
   onAddNewApplication: (suggestion: SuggestedNewApplication) => void
@@ -151,16 +152,45 @@ function NewApplicationRow({
   )
 }
 
+function AutoAppliedRow({ confirmation }: { confirmation: AutoApplied }) {
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-base font-bold text-slate-900">{confirmation.companyName}</div>
+          <div className="text-sm text-slate-500">{confirmation.roleTitle}</div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <StatusPill status="Preparing" />
+          <span className="text-slate-400" aria-hidden>
+            →
+          </span>
+          <StatusPill status="Applied" />
+        </div>
+      </div>
+
+      <p className="mt-3 text-sm leading-relaxed text-slate-700">{confirmation.reasoning}</p>
+
+      <EmailMeta
+        subject={confirmation.emailSubject}
+        from={confirmation.emailFrom}
+        receivedAtUtc={confirmation.emailReceivedAtUtc}
+      />
+    </div>
+  )
+}
+
 export function GmailSuggestionsModal({
   statusUpdates,
   newApplications,
+  autoApplied,
   onAcceptStatusUpdate,
   onDismissStatusUpdate,
   onAddNewApplication,
   onDismissNewApplication,
   onClose,
 }: Props) {
-  const total = statusUpdates.length + newApplications.length
+  const total = statusUpdates.length + newApplications.length + autoApplied.length
 
   return (
     <ModalBackdrop onClose={onClose}>
@@ -171,7 +201,7 @@ export function GmailSuggestionsModal({
         className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl"
       >
         <ModalHeader
-          title={total === 0 ? 'All caught up' : `${total} suggestion${total === 1 ? '' : 's'} found`}
+          title={total === 0 ? 'All caught up' : `${total} update${total === 1 ? '' : 's'} found`}
           subtitle="Found in your recent email — review each before applying."
           onClose={onClose}
         />
@@ -183,6 +213,23 @@ export function GmailSuggestionsModal({
             </p>
           ) : (
             <div className="space-y-6">
+              {autoApplied.length > 0 && (
+                <div>
+                  <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-400">
+                    Confirmed as applied
+                  </h3>
+                  <p className="mb-3 text-sm text-slate-500">
+                    You were prepping these and the company confirmed they got your application, so they've
+                    already been moved. Nothing to do.
+                  </p>
+                  <div className="space-y-4">
+                    {autoApplied.map((confirmation) => (
+                      <AutoAppliedRow key={confirmation.applicationId} confirmation={confirmation} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {newApplications.length > 0 && (
                 <div>
                   <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-400">

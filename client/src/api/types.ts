@@ -1,4 +1,5 @@
 export const STATUSES = [
+  'Preparing',
   'Applied',
   'PhoneScreen',
   'Interview',
@@ -26,9 +27,34 @@ export interface Application {
   dateApplied: string
   notes: string | null
   jobDescriptionText: string | null
+  tailoredResumeText: string | null
+  coverLetterText: string | null
   createdAtUtc: string
   updatedAtUtc: string
   statusHistory?: StatusChange[] | null
+}
+
+export type PrepRunStatus = 'Running' | 'Succeeded' | 'Failed'
+
+export interface PrepStep {
+  label: string
+  detail: string
+  score: number | null
+}
+
+export interface PrepRun {
+  id: string
+  applicationId: string
+  status: PrepRunStatus
+  targetScore: number
+  baselineScore: number | null
+  finalScore: number | null
+  iterations: number
+  steps: PrepStep[]
+  readyToApply: boolean | null
+  errorMessage: string | null
+  startedAtUtc: string
+  completedAtUtc: string | null
 }
 
 export interface ApplicationInput {
@@ -126,9 +152,20 @@ export interface SuggestedNewApplication {
   emailReceivedAtUtc: string
 }
 
+export interface AutoApplied {
+  applicationId: string
+  companyName: string
+  roleTitle: string
+  reasoning: string
+  emailSubject: string
+  emailFrom: string
+  emailReceivedAtUtc: string
+}
+
 export interface GmailScanResult {
   statusUpdates: SuggestedStatusUpdate[]
   newApplications: SuggestedNewApplication[]
+  autoApplied: AutoApplied[]
 }
 
 export interface JobPostingExtraction {

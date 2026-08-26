@@ -23,14 +23,30 @@ Tracking a job search in a spreadsheet falls apart fast: statuses go stale, ther
 - **Score history** — re-scoring appends rather than overwrites, so progress after resume edits stays visible
 - **Degrades cleanly** — with no API key configured, the tracker works exactly as before and scoring returns a clear "needs an API key" message rather than an error
 
+**Automated prep (Phase 5)**
+
+The four AI features above are individually useful but were each a manual button. Prep chains them into the actual workflow — find a posting, paste it, and the app gets you to the point of applying:
+
+- **One pass, end to end** — scores your active resume against the posting, rewrites it, re-scores the rewrite, and repeats until it clears a target score (default 80, `Prep:TargetScore`); then writes a cover letter against whichever version won
+- **Knows when to stop** — a resume that already clears the target is never rewritten, and a pass that doesn't improve the score ends the loop rather than drifting further from the original. Capped at 3 passes regardless
+- **Keeps the best version, not the last** — a rewrite that scores worse than the original is discarded; a tie is kept, since it's still phrased in the posting's language
+- **Runs in the background** — a pass is several chained model calls, so the request records a `PrepRun` and returns immediately. Progress is written step by step, so the UI follows along live and closing the tab loses nothing
+- **"You're good to apply"** — the verdict is explicit, with the tailored resume and cover letter editable and copy-ready beneath it
+- **Survives restarts** — a run interrupted by a deploy is closed out on next startup instead of polling forever
+
+**Pipeline stage: Preparing**
+
+Applications now start at `Preparing` — found, not yet applied to. That's the stage prep runs in, and it's what makes the Gmail loop close: when a confirmation email arrives for a company you were preparing, the application moves to `Applied` on its own, dated to the email. Every other transition still goes through review — confirming an application you already decided to submit isn't a judgement call, but inferring an interview or rejection is.
+
 ## Roadmap
 
-| Phase | What | Why the data model is already ready |
+| Phase | What | Why the data model was already ready |
 |---|---|---|
 | 1 | Manual tracker | — |
 | 2 | LLM-based resume ↔ job description match scoring | `JobDescriptionText` was captured on every application from day one |
-| 3 | Job posting ingestion from a URL | Ingestion writes the same `Application` shape; source column is a one-line migration |
-| 4 | Email-based status detection | `StatusChange` rows carry a `Source` enum (`Manual` today) — automated detection just writes rows with a new source |
+| 3 | Job posting ingestion from a URL | Ingestion writes the same `Application` shape |
+| 4 | Email-based status detection | `StatusChange` rows carried a `Source` enum from day one — detection just writes rows with `EmailSuggestion` / `EmailAutomatic` |
+| 5 | Automated prep pipeline | Match results were already append-only and model-stamped, so a loop that scores repeatedly is history, not overwrites |
 
 ## Tech stack
 
@@ -70,6 +86,11 @@ client/                     React + TypeScript + Tailwind
 | GET | `/api/applications/matches` | Latest match result per application, for the list view |
 | GET | `/api/applications/{id}/match` | Latest match result for one application |
 | POST | `/api/applications/{id}/match` | Runs a fresh scoring pass and stores it |
+| POST | `/api/applications/{id}/prep` | Queues an automated prep pass; 202 with the `Running` run |
+| GET | `/api/applications/{id}/prep` | Latest prep run — poll this for progress |
+| GET | `/api/applications/prep-runs` | Latest prep run per application, for the list view |
+| PUT | `/api/applications/{id}/documents` | Saves edits to the tailored resume / cover letter |
+| POST | `/api/gmail/suggestions/accept` | Applies a scan suggestion, stamping `EmailSuggestion` provenance |
 | GET/POST | `/api/resumes` | List / create resume versions |
 | PUT/DELETE | `/api/resumes/{id}` | Edit or remove a resume |
 | PATCH | `/api/resumes/{id}/active` | Choose which resume new scores use |
@@ -131,6 +152,8 @@ An `ANTHROPIC_API_KEY` environment variable works too. Without either, everythin
 
 Optional overrides in `appsettings.json`: `Anthropic:Model` (default `claude-opus-5`) and `Anthropic:Effort` (`low`/`medium`/`high`/`max`, default `medium` — scoring is a bounded analysis task, so medium is the cost/quality sweet spot).
 
+`Prep:TargetScore` (default `80`) is the score a prep pass tries to clear before it declares you good to apply. Raising it makes the loop rewrite more often; each extra pass is two more model calls, and the loop stops early anyway once a pass stops improving.
+
 ```bash
 # Tests
 dotnet test
@@ -190,3 +213,7 @@ Redeploys are safe to run repeatedly — migrations only apply what's new, and t
 - **Match results are append-only and record their model id** — scores from different models aren't comparable, and keeping history shows whether a resume edit actually helped.
 - **Deleting a resume with scores attached is blocked** (409) rather than cascading — the resume text is the context that makes an old score meaningful.
 - **Scoring failures are typed** (`MatchFailureReason`) and map to distinct status codes: 409 for "you need to add a job description first", 503 for "no API key", 502 for an upstream failure. The UI can tell the user what to fix instead of just "try again".
+- **Prep runs are a persisted row, not an HTTP request** — a pass is several chained model calls, well past any sane request timeout, and the user should be able to close the tab. The row *is* the progress: each step is saved as it completes, so polling shows a live log and a restart can close out what it interrupted.
+- **The prep loop stops on non-improvement, not just on a pass count** — a rewrite can only reframe experience the resume already has, so once a pass stops helping, more passes only drift further from the original. The 3-pass cap is a backstop, not the usual exit.
+- **Tailored resumes live on the application, not in the resume library** — the library holds base versions the user maintains; one throwaway variant per posting would bury them.
+- **Preparing → Applied is the one automatic transition.** Everything else Gmail infers stays a suggestion. The asymmetry is deliberate: confirming an application the user already chose to submit is fact-checking, while inferring an interview or rejection is a judgement worth reviewing.

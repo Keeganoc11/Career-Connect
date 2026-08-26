@@ -16,10 +16,18 @@ public class Application
     /// scoring consumes it, so it is captured from the start.</summary>
     public string? JobDescriptionText { get; set; }
 
+    /// <summary>Resume rewritten for this specific posting by the prep pipeline.
+    /// Deliberately not a Resume row — the library holds base versions the user
+    /// maintains, not one throwaway variant per posting.</summary>
+    public string? TailoredResumeText { get; set; }
+
+    public string? CoverLetterText { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 
     public User User { get; set; } = null!;
     public List<StatusChange> StatusHistory { get; set; } = [];
     public List<MatchResult> MatchResults { get; set; } = [];
+    public List<PrepRun> PrepRuns { get; set; } = [];
 }

@@ -28,7 +28,7 @@ export function ApplicationFormModal({ application, prefill, onSave, onClose }: 
   const [companyName, setCompanyName] = useState(application?.companyName ?? prefill?.companyName ?? '')
   const [roleTitle, setRoleTitle] = useState(application?.roleTitle ?? prefill?.roleTitle ?? '')
   const [jobPostingUrl, setJobPostingUrl] = useState(application?.jobPostingUrl ?? '')
-  const [status, setStatus] = useState(application?.status ?? 'Applied')
+  const [status, setStatus] = useState(application?.status ?? 'Preparing')
   const [dateApplied, setDateApplied] = useState(application?.dateApplied ?? prefill?.dateApplied ?? todayIso())
   const [notes, setNotes] = useState(application?.notes ?? '')
   const [jobDescriptionText, setJobDescriptionText] = useState(
@@ -96,8 +96,8 @@ export function ApplicationFormModal({ application, prefill, onSave, onClose }: 
             isEdit
               ? application.companyName
               : prefill
-                ? 'Detected from Gmail — review the details, then paste the job description to unlock match scoring.'
-                : 'Paste the job description to unlock match scoring.'
+                ? 'Detected from Gmail — review the details, then paste the job description to unlock prep.'
+                : 'Drop in the posting URL and prep starts as soon as you save.'
           }
           onClose={onClose}
         />
@@ -176,7 +176,7 @@ export function ApplicationFormModal({ application, prefill, onSave, onClose }: 
             />
           </label>
           <label className="block">
-            <span className={labelClass}>Date applied *</span>
+            <span className={labelClass}>{status === 'Preparing' && !isEdit ? 'Target date' : 'Date applied'} *</span>
             <input
               className={inputClass}
               type="date"
@@ -215,7 +215,7 @@ export function ApplicationFormModal({ application, prefill, onSave, onClose }: 
             <span className={labelClass}>
               Job description
               <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700">
-                powers match scoring
+                powers scoring, tailoring, and cover letters
               </span>
             </span>
             <textarea

@@ -11,6 +11,12 @@ interface StatusMeta {
 }
 
 export const STATUS_META: Record<ApplicationStatus, StatusMeta> = {
+  Preparing: {
+    label: 'Preparing',
+    badge: 'bg-amber-50 text-amber-800 ring-amber-600/20',
+    dot: 'bg-amber-500',
+    tileAccent: 'border-amber-500',
+  },
   Applied: {
     label: 'Applied',
     badge: 'bg-blue-50 text-blue-800 ring-blue-600/20',
@@ -49,9 +55,9 @@ export const STATUS_META: Record<ApplicationStatus, StatusMeta> = {
   },
   Withdrawn: {
     label: 'Withdrawn',
-    badge: 'bg-amber-50 text-amber-800 ring-amber-600/20',
-    dot: 'bg-amber-500',
-    tileAccent: 'border-amber-500',
+    badge: 'bg-stone-100 text-stone-700 ring-stone-500/20',
+    dot: 'bg-stone-400',
+    tileAccent: 'border-stone-400',
   },
 }
 

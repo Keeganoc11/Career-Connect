@@ -11,6 +11,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Resume> Resumes => Set<Resume>();
     public DbSet<MatchResult> MatchResults => Set<MatchResult>();
     public DbSet<GmailConnection> GmailConnections => Set<GmailConnection>();
+    public DbSet<PrepRun> PrepRuns => Set<PrepRun>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -87,6 +88,19 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                  .OnDelete(DeleteBehavior.Restrict);
 
             match.HasIndex(m => new { m.ApplicationId, m.CreatedAtUtc });
+        });
+
+        modelBuilder.Entity<PrepRun>(run =>
+        {
+            run.Property(r => r.Status).HasConversion<string>().HasMaxLength(50);
+            run.Property(r => r.Steps).HasPrepStepListConversion();
+
+            run.HasOne(r => r.Application)
+               .WithMany(a => a.PrepRuns)
+               .HasForeignKey(r => r.ApplicationId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+            run.HasIndex(r => new { r.ApplicationId, r.StartedAtUtc });
         });
 
         modelBuilder.Entity<GmailConnection>(gmail =>

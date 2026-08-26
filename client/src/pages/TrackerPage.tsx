@@ -8,6 +8,7 @@ import type {
   GmailConnectionStatus,
   GmailScanResult,
   MatchResult,
+  PrepRun,
   ResumeSummary,
   SuggestedNewApplication,
   SuggestedStatusUpdate,
@@ -18,6 +19,7 @@ import { SummaryBar } from '../components/SummaryBar'
 import { ApplicationsTable } from '../components/ApplicationsTable'
 import { ApplicationFormModal } from '../components/ApplicationFormModal'
 import { MatchDetailModal } from '../components/MatchDetailModal'
+import { PrepModal } from '../components/PrepModal'
 import { AiToolsModal } from '../components/AiToolsModal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { CopilotPanel } from '../components/CopilotPanel'
@@ -29,6 +31,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [applications, setApplications] = useState<Application[]>([])
   const [summary, setSummary] = useState<Summary | null>(null)
   const [matches, setMatches] = useState<Record<string, MatchResult>>({})
+  const [prepRuns, setPrepRuns] = useState<Record<string, PrepRun>>({})
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -38,6 +41,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [scoringId, setScoringId] = useState<string | null>(null)
   const [scoreError, setScoreError] = useState<string | null>(null)
   const [matchTarget, setMatchTarget] = useState<Application | null>(null)
+  const [prepTarget, setPrepTarget] = useState<{ application: Application; autoStart: boolean } | null>(null)
   const [toolsTarget, setToolsTarget] = useState<Application | null>(null)
   const [resumes, setResumes] = useState<ResumeSummary[]>([])
   const [tailoring, setTailoring] = useState(false)
@@ -60,15 +64,17 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [list, counts, latestMatches, resumeList] = await Promise.all([
+      const [list, counts, latestMatches, latestPrepRuns, resumeList] = await Promise.all([
         api.listApplications(),
         api.getSummary(),
         api.listMatches(),
+        api.listPrepRuns(),
         api.listResumes(),
       ])
       setApplications(list)
       setSummary(counts)
       setMatches(latestMatches)
+      setPrepRuns(latestPrepRuns)
       setResumes(resumeList)
       setLoadError(null)
     } catch (e) {
@@ -81,6 +87,35 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  // A prep pass keeps running server-side after its modal is closed, so the
+  // table polls for itself — otherwise a row would sit on "Prepping…" until
+  // the next full page load.
+  const hasRunningPrep = Object.values(prepRuns).some((run) => run.status === 'Running')
+  useEffect(() => {
+    if (!hasRunningPrep) return
+
+    let cancelled = false
+    const timer = setInterval(async () => {
+      try {
+        const latest = await api.listPrepRuns()
+        if (cancelled) return
+        setPrepRuns(latest)
+
+        // A finished pass wrote documents onto the applications themselves.
+        if (!Object.values(latest).some((run) => run.status === 'Running')) {
+          await refresh()
+        }
+      } catch {
+        // Transient — the next tick retries, and a real outage surfaces elsewhere.
+      }
+    }, 5000)
+
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [hasRunningPrep, refresh])
 
   const loadGmailStatus = useCallback(async () => {
     try {
@@ -148,10 +183,19 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
     try {
       const result = await api.scanGmail()
       await loadGmailStatus()
-      if (result.statusUpdates.length === 0 && result.newApplications.length === 0) {
+      if (
+        result.statusUpdates.length === 0 &&
+        result.newApplications.length === 0 &&
+        result.autoApplied.length === 0
+      ) {
         setGmailBanner({ tone: 'success', message: 'No new updates found.' })
       } else {
         setGmailScanResult(result)
+        // Auto-applied confirmations already changed status server-side, so
+        // the table is stale until we pull it again.
+        if (result.autoApplied.length > 0) {
+          await refresh()
+        }
       }
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
@@ -169,11 +213,17 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   // cancelling out of the follow-up form (or a failed status change) would
   // silently discard a suggestion the user never actually acted on.
   const acceptGmailSuggestion = async (suggestion: SuggestedStatusUpdate) => {
-    const succeeded = await changeStatus(suggestion.applicationId, suggestion.suggestedStatus)
-    if (succeeded) {
+    setBusyId(suggestion.applicationId)
+    try {
+      await api.acceptGmailSuggestion(suggestion.applicationId, suggestion.suggestedStatus)
+      await refresh()
       setGmailScanResult((current) =>
         current && { ...current, statusUpdates: current.statusUpdates.filter((s) => s !== suggestion) },
       )
+    } catch (e) {
+      handleError(e)
+    } finally {
+      setBusyId(null)
     }
   }
 
@@ -297,8 +347,9 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   }
 
   const save = async (input: ApplicationInput) => {
+    let created: Application | null = null
     if (formTarget === 'new') {
-      await api.createApplication(input)
+      created = await api.createApplication(input)
     } else if (formTarget) {
       await api.updateApplication(formTarget.id, input)
     }
@@ -311,7 +362,31 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
     setFormTarget(null)
     setFormPrefill(undefined)
+
+    // The whole point of capturing a posting is to prep against it, so a new
+    // one with a description goes straight into the pipeline rather than
+    // waiting to be found and clicked in the table.
+    if (created && created.jobDescriptionText && created.status === 'Preparing') {
+      setPrepTarget({ application: created, autoStart: true })
+    }
+
     await refresh()
+  }
+
+  const recordPrepRun = useCallback((run: PrepRun) => {
+    setPrepRuns((current) => ({ ...current, [run.applicationId]: run }))
+  }, [])
+
+  const openPrep = (application: Application) => {
+    setPrepTarget({ application, autoStart: false })
+  }
+
+  const markApplied = async () => {
+    if (!prepTarget) return
+    const succeeded = await changeStatus(prepTarget.application.id, 'Applied')
+    if (succeeded) {
+      setPrepTarget(null)
+    }
   }
 
   const confirmDelete = async () => {
@@ -490,11 +565,13 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
           <ApplicationsTable
             applications={visible}
             matches={matches}
+            prepRuns={prepRuns}
             busyId={busyId}
             scoringId={scoringId}
             onStatusChange={changeStatus}
             onScore={(application) => void score(application)}
             onOpenMatch={(application) => setMatchTarget(application)}
+            onOpenPrep={openPrep}
             onOpenTools={(application) => setToolsTarget(application)}
             onEdit={(application) => setFormTarget(application)}
             onDelete={(application) => setDeleteTarget(application)}
@@ -506,6 +583,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
         <GmailSuggestionsModal
           statusUpdates={gmailScanResult.statusUpdates}
           newApplications={gmailScanResult.newApplications}
+          autoApplied={gmailScanResult.autoApplied}
           onAcceptStatusUpdate={acceptGmailSuggestion}
           onDismissStatusUpdate={dismissGmailStatusUpdate}
           onAddNewApplication={reviewNewApplicationFromGmail}
@@ -525,6 +603,20 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
           onLoadResumeContent={loadResumeContent}
           onTailorAndRescore={tailorAndRescore}
           onClose={() => setMatchTarget(null)}
+        />
+      )}
+
+      {prepTarget && (
+        <PrepModal
+          application={prepTarget.application}
+          run={prepRuns[prepTarget.application.id] ?? null}
+          autoStart={prepTarget.autoStart}
+          onRunChange={recordPrepRun}
+          onMarkApplied={() => void markApplied()}
+          onClose={() => {
+            setPrepTarget(null)
+            void refresh()
+          }}
         />
       )}
 

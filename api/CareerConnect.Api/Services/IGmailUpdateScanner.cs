@@ -28,7 +28,8 @@ public abstract record GmailScanOutcome
 {
     public sealed record Success(
         List<SuggestedStatusUpdateResponse> StatusUpdates,
-        List<SuggestedNewApplicationResponse> NewApplications) : GmailScanOutcome;
+        List<SuggestedNewApplicationResponse> NewApplications,
+        List<AutoAppliedResponse> AutoApplied) : GmailScanOutcome;
     public sealed record Failed(string Message) : GmailScanOutcome;
 }
 
@@ -36,8 +37,12 @@ public interface IGmailUpdateScanner
 {
     /// <summary>
     /// Scans recent Gmail for replies about the user's open applications and
-    /// returns suggested status changes. Never applies anything itself —
-    /// the caller decides what to accept.
+    /// returns suggested status changes for the caller to accept or dismiss.
+    ///
+    /// The one exception is Preparing → Applied: an application the user was
+    /// prepping, plus a confirmation email from that company, is the user's own
+    /// decision coming back as fact. Those are applied here and reported under
+    /// AutoApplied. Every other transition stays a suggestion.
     /// </summary>
     Task<GmailScanOutcome> ScanAsync(Guid userId, CancellationToken cancellationToken = default);
 }

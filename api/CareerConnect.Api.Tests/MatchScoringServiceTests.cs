@@ -76,10 +76,10 @@ public sealed class MatchScoringServiceTests : IDisposable
         await _fixture.Db.Database.ExecuteSqlInterpolatedAsync(
             $"""
             INSERT INTO MatchResults
-                (Id, ApplicationId, ResumeId, Score, Summary, MatchedKeywords, MissingKeywords, Suggestions, ModelId, CreatedAtUtc)
+                (Id, ApplicationId, ResumeId, Score, Summary, MatchedKeywords, MissingKeywords, Suggestions, ModelId, UsedTailoredResume, CreatedAtUtc)
             VALUES
                 ({legacyRow.Id}, {legacyRow.ApplicationId}, {legacyRow.ResumeId}, {legacyRow.Score}, {legacyRow.Summary},
-                 '[]', '[]', '["Add a project to the Projects section."]', {legacyRow.ModelId}, {legacyRow.CreatedAtUtc})
+                 '[]', '[]', '["Add a project to the Projects section."]', {legacyRow.ModelId}, 0, {legacyRow.CreatedAtUtc})
             """);
 
         var latest = await _service.GetLatestAsync(_userId, application.Id);

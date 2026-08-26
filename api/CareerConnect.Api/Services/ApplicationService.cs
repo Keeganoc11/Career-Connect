@@ -76,7 +76,8 @@ public class ApplicationService(AppDbContext db) : IApplicationService
         return ToResponse(application, includeHistory: true);
     }
 
-    public async Task<ApplicationResponse?> UpdateStatusAsync(Guid userId, Guid id, ApplicationStatus newStatus)
+    public async Task<ApplicationResponse?> UpdateStatusAsync(
+        Guid userId, Guid id, ApplicationStatus newStatus, StatusChangeSource source = StatusChangeSource.Manual)
     {
         var application = await FindWithHistoryAsync(userId, id, track: true);
         if (application is null)
@@ -93,7 +94,7 @@ public class ApplicationService(AppDbContext db) : IApplicationService
                 FromStatus = application.Status,
                 ToStatus = newStatus,
                 ChangedAtUtc = DateTime.UtcNow,
-                Source = StatusChangeSource.Manual
+                Source = source
             };
             // Explicit Add: with a client-set GUID key, relationship fixup alone
             // would mark this entity Modified (an UPDATE) instead of Added.
@@ -103,6 +104,22 @@ public class ApplicationService(AppDbContext db) : IApplicationService
             await db.SaveChangesAsync();
         }
 
+        return ToResponse(application, includeHistory: true);
+    }
+
+    public async Task<ApplicationResponse?> UpdateDocumentsAsync(
+        Guid userId, Guid id, UpdateApplicationDocumentsRequest request)
+    {
+        var application = await FindWithHistoryAsync(userId, id, track: true);
+        if (application is null)
+        {
+            return null;
+        }
+
+        application.TailoredResumeText = NormalizeOptional(request.TailoredResumeText);
+        application.CoverLetterText = NormalizeOptional(request.CoverLetterText);
+
+        await db.SaveChangesAsync();
         return ToResponse(application, includeHistory: true);
     }
 
@@ -166,6 +183,8 @@ public class ApplicationService(AppDbContext db) : IApplicationService
         DateApplied = a.DateApplied,
         Notes = a.Notes,
         JobDescriptionText = a.JobDescriptionText,
+        TailoredResumeText = a.TailoredResumeText,
+        CoverLetterText = a.CoverLetterText,
         CreatedAtUtc = a.CreatedAtUtc,
         UpdatedAtUtc = a.UpdatedAtUtc,
         StatusHistory = includeHistory

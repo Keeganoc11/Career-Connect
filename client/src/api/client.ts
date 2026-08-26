@@ -9,6 +9,7 @@ import type {
   JobPostingExtraction,
   LoginResponse,
   MatchResult,
+  PrepRun,
   Resume,
   ResumeInput,
   ResumeSummary,
@@ -136,6 +137,10 @@ export const api = {
     return request<Application[]>('/api/applications')
   },
 
+  getApplication(id: string) {
+    return request<Application>(`/api/applications/${id}`)
+  },
+
   getSummary() {
     return request<Summary>('/api/applications/summary')
   },
@@ -222,6 +227,27 @@ export const api = {
     })
   },
 
+  /** Latest prep run per application, keyed by application id. */
+  listPrepRuns() {
+    return request<Record<string, PrepRun>>('/api/applications/prep-runs')
+  },
+
+  /** Kicks off a prep pass. Returns as soon as it's queued — poll getPrepRun for progress. */
+  startPrep(applicationId: string) {
+    return request<PrepRun>(`/api/applications/${applicationId}/prep`, { method: 'POST' })
+  },
+
+  getPrepRun(applicationId: string) {
+    return request<PrepRun>(`/api/applications/${applicationId}/prep`)
+  },
+
+  saveDocuments(applicationId: string, documents: { tailoredResumeText: string | null; coverLetterText: string | null }) {
+    return request<Application>(`/api/applications/${applicationId}/documents`, {
+      method: 'PUT',
+      body: JSON.stringify(documents),
+    })
+  },
+
   tailorResume(applicationId: string, resumeContent: string) {
     return request<{ content: string }>(`/api/applications/${applicationId}/tailor-resume`, {
       method: 'POST',
@@ -256,6 +282,14 @@ export const api = {
 
   scanGmail() {
     return request<GmailScanResult>('/api/gmail/scan', { method: 'POST' })
+  },
+
+  /** Applies a scan suggestion. Separate from updateStatus so history records that email drove it. */
+  acceptGmailSuggestion(applicationId: string, status: ApplicationStatus) {
+    return request<Application>('/api/gmail/suggestions/accept', {
+      method: 'POST',
+      body: JSON.stringify({ applicationId, status }),
+    })
   },
 
   /** Whatever the last scheduled background scan found, if anything — undefined if nothing's pending. */

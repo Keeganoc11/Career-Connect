@@ -52,6 +52,7 @@ public sealed class ScheduledGmailScanRunnerTests : IDisposable
                 EmailFrom = "hr@acme.com",
                 EmailReceivedAtUtc = DateTime.UtcNow,
             }],
+            [],
             []);
 
         await _runner.RunAllAsync();
@@ -67,7 +68,7 @@ public sealed class ScheduledGmailScanRunnerTests : IDisposable
     {
         var userId = _fixture.SeedUser("me@example.com");
         SeedConnection(userId);
-        _scanner.DefaultOutcome = new GmailScanOutcome.Success([], []);
+        _scanner.DefaultOutcome = new GmailScanOutcome.Success([], [], []);
 
         await _runner.RunAllAsync();
 
@@ -121,7 +122,8 @@ public sealed class ScheduledGmailScanRunnerTests : IDisposable
                 EmailSubject = "Thanks for applying",
                 EmailFrom = "hr@new.com",
                 EmailReceivedAtUtc = DateTime.UtcNow,
-            }]);
+            }],
+            []);
 
         await _runner.RunAllAsync();
 

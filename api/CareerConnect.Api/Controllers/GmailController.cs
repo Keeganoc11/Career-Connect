@@ -11,6 +11,7 @@ namespace CareerConnect.Api.Controllers;
 public class GmailController(
     IGmailOAuthService oauth,
     IGmailUpdateScanner scanner,
+    IApplicationService applications,
     IDataProtectionProvider dataProtectionProvider,
     IConfiguration configuration) : ApiControllerBase
 {
@@ -133,6 +134,19 @@ public class GmailController(
         return result is null ? NoContent() : Ok(result);
     }
 
+    /// <summary>Applies a status change the user accepted from a scan, recording that email is where it came from.</summary>
+    [HttpPost("suggestions/accept")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApplicationResponse>> AcceptSuggestion(AcceptSuggestionRequest request)
+    {
+        var updated = await applications.UpdateStatusAsync(
+            UserId, request.ApplicationId, request.Status, Domain.StatusChangeSource.EmailSuggestion);
+
+        return updated is null ? NotFound() : Ok(updated);
+    }
+
     [HttpDelete("connection")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -157,6 +171,7 @@ public class GmailController(
             {
                 StatusUpdates = success.StatusUpdates,
                 NewApplications = success.NewApplications,
+                AutoApplied = success.AutoApplied,
             }),
             GmailScanOutcome.Failed failed => Conflict(new ProblemDetails
             {

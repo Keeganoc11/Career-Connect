@@ -14,7 +14,7 @@ public class CreateApplicationRequest
     [Url, MaxLength(2048)]
     public string? JobPostingUrl { get; init; }
 
-    public ApplicationStatus Status { get; init; } = ApplicationStatus.Applied;
+    public ApplicationStatus Status { get; init; } = ApplicationStatus.Preparing;
 
     [Required]
     public DateOnly DateApplied { get; init; }
@@ -93,6 +93,8 @@ public class ApplicationResponse
     public required DateOnly DateApplied { get; init; }
     public string? Notes { get; init; }
     public string? JobDescriptionText { get; init; }
+    public string? TailoredResumeText { get; init; }
+    public string? CoverLetterText { get; init; }
     public required DateTime CreatedAtUtc { get; init; }
     public required DateTime UpdatedAtUtc { get; init; }
     public List<StatusChangeResponse>? StatusHistory { get; init; }

@@ -45,6 +45,13 @@ builder.Services.AddScoped<IInterviewPrepService, InterviewPrepService>();
 builder.Services.AddSingleton<ICopilotAnalyzer, ClaudeCopilotAnalyzer>();
 builder.Services.AddScoped<ICopilotService, CopilotService>();
 
+// A prep pass chains several model calls, far past any sane HTTP timeout, so
+// the request only records the run and the background worker executes it.
+builder.Services.AddSingleton<IPrepRunQueue, PrepRunQueue>();
+builder.Services.AddScoped<IPrepRunService, PrepRunService>();
+builder.Services.AddScoped<IApplicationPrepRunner, ApplicationPrepRunner>();
+builder.Services.AddHostedService<PrepRunBackgroundService>();
+
 // Encrypts the stored Gmail refresh token (see GmailOAuthService). Without a
 // persisted key ring, a container redeploy generates a new one and silently
 // strands every previously-stored token — set DataProtection:KeysPath to a

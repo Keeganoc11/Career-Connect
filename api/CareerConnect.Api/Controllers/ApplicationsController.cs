@@ -14,7 +14,8 @@ public class ApplicationsController(
     IJobPostingIngestService jobPostings,
     IResumeTailorService resumeTailor,
     ICoverLetterService coverLetters,
-    IInterviewPrepService interviewPrep) : ApiControllerBase
+    IInterviewPrepService interviewPrep,
+    IPrepRunService prepRuns) : ApiControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<ApplicationResponse>>> List() =>
@@ -102,6 +103,70 @@ public class ApplicationsController(
     {
         var updated = await applications.UpdateStatusAsync(UserId, id, request.Status);
         return updated is null ? NotFound() : Ok(updated);
+    }
+
+    /// <summary>Saves user edits to the tailored resume and cover letter the prep pipeline generated.</summary>
+    [HttpPut("{id:guid}/documents")]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApplicationResponse>> UpdateDocuments(
+        Guid id, UpdateApplicationDocumentsRequest request)
+    {
+        var updated = await applications.UpdateDocumentsAsync(UserId, id, request);
+        return updated is null ? NotFound() : Ok(updated);
+    }
+
+    /// <summary>Latest prep run per application, keyed by application id.</summary>
+    [HttpGet("prep-runs")]
+    public async Task<ActionResult<Dictionary<Guid, PrepRunResponse>>> PrepRuns(CancellationToken cancellationToken)
+    {
+        var runs = await prepRuns.GetLatestForAllAsync(UserId, cancellationToken);
+        return Ok(runs.ToDictionary(pair => pair.Key, pair => PrepRunResponse.From(pair.Value)));
+    }
+
+    [HttpGet("{id:guid}/prep")]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PrepRunResponse>> GetPrepRun(Guid id, CancellationToken cancellationToken)
+    {
+        var run = await prepRuns.GetLatestAsync(UserId, id, cancellationToken);
+        return run is null ? NotFound() : Ok(PrepRunResponse.From(run));
+    }
+
+    /// <summary>
+    /// Kicks off the automated prep pass — score, rewrite and re-score until it
+    /// clears the target, then write a cover letter. Returns immediately with a
+    /// Running run; poll GET /prep for progress.
+    /// </summary>
+    [HttpPost("{id:guid}/prep")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<PrepRunResponse>> StartPrep(Guid id, CancellationToken cancellationToken)
+    {
+        var outcome = await prepRuns.StartAsync(UserId, id, cancellationToken);
+
+        return outcome switch
+        {
+            PrepStartOutcome.Started started
+                => Accepted(PrepRunResponse.From(started.Run)),
+
+            PrepStartOutcome.Failed { Reason: PrepStartFailureReason.ApplicationNotFound } => NotFound(),
+
+            PrepStartOutcome.Failed failed and { Reason: PrepStartFailureReason.AiUnavailable }
+                => StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails
+                {
+                    Title = failed.Message,
+                    Status = StatusCodes.Status503ServiceUnavailable,
+                }),
+
+            // Everything else is a precondition the user can fix (no JD, no
+            // active resume) or a duplicate start — the request was fine, the
+            // state isn't ready.
+            PrepStartOutcome.Failed failed
+                => Conflict(new ProblemDetails { Title = failed.Message, Status = StatusCodes.Status409Conflict }),
+
+            _ => StatusCode(StatusCodes.Status500InternalServerError),
+        };
     }
 
     [HttpDelete("{id:guid}")]

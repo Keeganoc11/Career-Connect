@@ -1,5 +1,6 @@
 using CareerConnect.Api.Domain;
 using CareerConnect.Api.Services;
+using Microsoft.EntityFrameworkCore;
 
 namespace CareerConnect.Api.Tests;
 
@@ -136,6 +137,52 @@ public sealed class GmailUpdateScannerTests : IDisposable
         Assert.Equal(ApplicationStatus.Interview, suggestion.SuggestedStatus);
         Assert.Equal("Interview invitation", suggestion.EmailSubject);
         Assert.Equal("recruiter@acme.com", suggestion.EmailFrom);
+    }
+
+    [Fact]
+    public async Task ScanAsync_AutoAppliesAPreparingApplicationOnItsConfirmationEmail()
+    {
+        var app = _fixture.SeedApplication(_userId, "Acme", status: ApplicationStatus.Preparing);
+        var confirmedAt = new DateTime(2026, 8, 20, 14, 0, 0, DateTimeKind.Utc);
+        _mailReader.Result =
+        [
+            new CandidateEmail(0, "We received your application", "careers@acme.com", "Thanks!", confirmedAt),
+        ];
+        _classifier.Result = [new EmailClassificationMatch(0, 0, "Applied", "Confirmation of submission.")];
+
+        var outcome = await _scanner.ScanAsync(_userId);
+
+        var success = Assert.IsType<GmailScanOutcome.Success>(outcome);
+        Assert.Empty(success.StatusUpdates);
+        var applied = Assert.Single(success.AutoApplied);
+        Assert.Equal(app.Id, applied.ApplicationId);
+
+        var stored = await _fixture.Db.Applications.AsNoTracking().FirstAsync(a => a.Id == app.Id);
+        Assert.Equal(ApplicationStatus.Applied, stored.Status);
+        Assert.Equal(new DateOnly(2026, 8, 20), stored.DateApplied);
+
+        var change = await _fixture.Db.StatusChanges.AsNoTracking()
+            .SingleAsync(c => c.ApplicationId == app.Id && c.ToStatus == ApplicationStatus.Applied);
+        Assert.Equal(StatusChangeSource.EmailAutomatic, change.Source);
+    }
+
+    [Fact]
+    public async Task ScanAsync_StillOnlySuggests_WhenAPreparingApplicationJumpsStraightToInterview()
+    {
+        // Skipping Applied entirely is unusual enough to be worth a human look,
+        // so only the Preparing → Applied confirmation is ever automatic.
+        var app = _fixture.SeedApplication(_userId, "Acme", status: ApplicationStatus.Preparing);
+        _mailReader.Result = [new CandidateEmail(0, "Let's talk", "recruiter@acme.com", "snippet", DateTime.UtcNow)];
+        _classifier.Result = [new EmailClassificationMatch(0, 0, "Interview", "Interview invite.")];
+
+        var outcome = await _scanner.ScanAsync(_userId);
+
+        var success = Assert.IsType<GmailScanOutcome.Success>(outcome);
+        Assert.Empty(success.AutoApplied);
+        Assert.Single(success.StatusUpdates);
+
+        var stored = await _fixture.Db.Applications.AsNoTracking().FirstAsync(a => a.Id == app.Id);
+        Assert.Equal(ApplicationStatus.Preparing, stored.Status);
     }
 
     [Fact]

@@ -11,7 +11,7 @@ public sealed class FakeGmailUpdateScanner : IGmailUpdateScanner
     /// <summary>Per-user outcome; users not present here get EmptyOutcome.</summary>
     public Dictionary<Guid, GmailScanOutcome> OutcomeByUser { get; } = [];
 
-    public GmailScanOutcome DefaultOutcome { get; set; } = new GmailScanOutcome.Success([], []);
+    public GmailScanOutcome DefaultOutcome { get; set; } = new GmailScanOutcome.Success([], [], []);
 
     public List<Guid> ScannedUserIds { get; } = [];
 

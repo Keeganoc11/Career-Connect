@@ -28,6 +28,13 @@ public class MatchResult
     /// <summary>Model that produced this result — scores aren't comparable across models.</summary>
     public required string ModelId { get; set; }
 
+    /// <summary>
+    /// True when the scored text was the prep pipeline's tailored rewrite
+    /// rather than the stored resume itself. ResumeId still points at the base
+    /// version the rewrite came from — that's what makes the score traceable.
+    /// </summary>
+    public bool UsedTailoredResume { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
 
     public Application Application { get; set; } = null!;

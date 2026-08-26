@@ -35,6 +35,7 @@ public sealed class FakeResumeTailorer : IResumeTailorer
             throw ThrowOnTailor;
         }
 
-        return Task.FromResult(Result);
+        // Suffixed so a test running several passes can tell which rewrite was kept.
+        return Task.FromResult(CallCount == 1 ? Result : $"{Result} (pass {CallCount})");
     }
 }

@@ -16,6 +16,17 @@ public class GmailAuthorizationUrlResponse
     public required string AuthorizationUrl { get; init; }
 }
 
+/// <summary>
+/// Accepting a status change that email scanning suggested. A dedicated
+/// endpoint rather than a flag on the normal status PATCH so the provenance
+/// stamped into history is decided by the server, not claimed by the caller.
+/// </summary>
+public class AcceptSuggestionRequest
+{
+    public required Guid ApplicationId { get; init; }
+    public required ApplicationStatus Status { get; init; }
+}
+
 public class SuggestedStatusUpdateResponse
 {
     public required Guid ApplicationId { get; init; }
@@ -39,8 +50,21 @@ public class SuggestedNewApplicationResponse
     public required DateTime EmailReceivedAtUtc { get; init; }
 }
 
+/// <summary>An application moved Preparing → Applied without asking, off a confirmation email.</summary>
+public class AutoAppliedResponse
+{
+    public required Guid ApplicationId { get; init; }
+    public required string CompanyName { get; init; }
+    public required string RoleTitle { get; init; }
+    public required string Reasoning { get; init; }
+    public required string EmailSubject { get; init; }
+    public required string EmailFrom { get; init; }
+    public required DateTime EmailReceivedAtUtc { get; init; }
+}
+
 public class GmailScanResponse
 {
     public required List<SuggestedStatusUpdateResponse> StatusUpdates { get; init; }
     public required List<SuggestedNewApplicationResponse> NewApplications { get; init; }
+    public required List<AutoAppliedResponse> AutoApplied { get; init; }
 }

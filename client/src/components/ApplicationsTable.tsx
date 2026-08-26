@@ -1,20 +1,23 @@
 import { useMemo, useState } from 'react'
-import type { Application, ApplicationStatus, MatchResult } from '../api/types'
+import type { Application, ApplicationStatus, MatchResult, PrepRun } from '../api/types'
 import { STATUS_ORDER } from '../lib/status'
 import { formatDate, formatRelative } from '../lib/format'
 import { InlineStatusSelect } from './InlineStatusSelect'
 import { MatchScoreCell } from './MatchScoreCell'
+import { PrepStatusCell } from './PrepStatusCell'
 
 type SortKey = 'dateApplied' | 'status' | 'companyName' | 'updatedAtUtc' | 'matchScore'
 
 interface Props {
   applications: Application[]
   matches: Record<string, MatchResult>
+  prepRuns: Record<string, PrepRun>
   busyId: string | null
   scoringId: string | null
   onStatusChange: (id: string, status: ApplicationStatus) => void
   onScore: (application: Application) => void
   onOpenMatch: (application: Application) => void
+  onOpenPrep: (application: Application) => void
   onOpenTools: (application: Application) => void
   onEdit: (application: Application) => void
   onDelete: (application: Application) => void
@@ -31,11 +34,13 @@ const columns: { key: SortKey; label: string; className?: string }[] = [
 export function ApplicationsTable({
   applications,
   matches,
+  prepRuns,
   busyId,
   scoringId,
   onStatusChange,
   onScore,
   onOpenMatch,
+  onOpenPrep,
   onOpenTools,
   onEdit,
   onDelete,
@@ -74,7 +79,7 @@ export function ApplicationsTable({
 
   return (
     <div className="overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-      <table className="w-full min-w-[640px] text-left">
+      <table className="w-full min-w-[800px] text-left">
         <thead>
           <tr className="border-b-2 border-slate-100">
             {columns.map((column) => {
@@ -101,6 +106,9 @@ export function ApplicationsTable({
                 </th>
               )
             })}
+            <th scope="col" className="px-5 py-4">
+              <span className="text-sm font-bold tracking-wide text-slate-500 uppercase">Prep</span>
+            </th>
             <th scope="col" className="px-5 py-4">
               <span className="sr-only">Actions</span>
             </th>
@@ -151,6 +159,13 @@ export function ApplicationsTable({
               </td>
               <td className="hidden px-5 py-4 whitespace-nowrap text-base text-slate-500 md:table-cell">
                 {formatRelative(application.updatedAtUtc)}
+              </td>
+              <td className="px-5 py-4">
+                <PrepStatusCell
+                  run={prepRuns[application.id]}
+                  hasJobDescription={Boolean(application.jobDescriptionText)}
+                  onOpen={() => onOpenPrep(application)}
+                />
               </td>
               <td className="px-5 py-4 text-right whitespace-nowrap">
                 <div className="flex justify-end gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">

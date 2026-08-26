@@ -20,7 +20,9 @@ public class ClaudeEmailStatusClassifier : IEmailStatusClassifier
         imply?
 
         Valid statuses: Applied, PhoneScreen, Interview, Offer, Rejected, Ghosted.
-        (Withdrawn is set by the candidate directly — never infer it.)
+        (Withdrawn is set by the candidate directly — never infer it. Preparing
+        means the candidate hadn't applied yet as of the last time they looked,
+        so it is a current status you will see, never one you suggest.)
 
         Only report a match when you're reasonably confident which application it
         belongs to — matching on company name is usually enough; use role title
@@ -28,6 +30,12 @@ public class ClaudeEmailStatusClassifier : IEmailStatusClassifier
         application. Automated "we received your application" confirmations
         don't imply any status change beyond Applied — skip those unless the
         application isn't already at Applied or further along.
+
+        Pay particular attention to applications currently at Preparing: the
+        candidate was getting ready to apply, so a confirmation email from that
+        company is the evidence they went through with it. Report those as
+        Applied — this is the one case where a routine confirmation is worth
+        reporting rather than skipping.
 
         JOB 2 — NEW APPLICATION DETECTION: is this email a personal "we
         received your application" / "thank you for applying" confirmation for

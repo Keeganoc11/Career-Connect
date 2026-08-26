@@ -56,7 +56,7 @@ public class GmailUpdateScanner(
 
         if (emails.Count == 0)
         {
-            return new GmailScanOutcome.Success([], []);
+            return new GmailScanOutcome.Success([], [], []);
         }
 
         // An empty tracker is a valid state now — it just means every
@@ -77,6 +77,7 @@ public class GmailUpdateScanner(
         }
 
         var statusUpdates = new List<SuggestedStatusUpdate>();
+        var autoApplied = new List<AutoAppliedResponse>();
         foreach (var match in result.StatusMatches)
         {
             var email = emails.ElementAtOrDefault(match.EmailIndex);
@@ -94,6 +95,25 @@ public class GmailUpdateScanner(
             if (suggestedStatus == application.Status)
             {
                 continue; // Already reflects this status — nothing to suggest.
+            }
+
+            // The user prepped this application to apply to it, and the company
+            // says they received it. Confirming that isn't a judgement call, so
+            // it doesn't need to sit in a review queue.
+            if (application.Status == ApplicationStatus.Preparing && suggestedStatus == ApplicationStatus.Applied)
+            {
+                await ApplyConfirmedAsync(application.Id, email.ReceivedAtUtc, cancellationToken);
+                autoApplied.Add(new AutoAppliedResponse
+                {
+                    ApplicationId = application.Id,
+                    CompanyName = application.CompanyName,
+                    RoleTitle = application.RoleTitle,
+                    Reasoning = match.Reasoning,
+                    EmailSubject = email.Subject,
+                    EmailFrom = email.From,
+                    EmailReceivedAtUtc = email.ReceivedAtUtc,
+                });
+                continue;
             }
 
             statusUpdates.Add(new SuggestedStatusUpdate(
@@ -142,7 +162,39 @@ public class GmailUpdateScanner(
 
         return new GmailScanOutcome.Success(
             statusUpdates.Select(ToResponse).ToList(),
-            newApplications.Select(ToResponse).ToList());
+            newApplications.Select(ToResponse).ToList(),
+            autoApplied);
+    }
+
+    /// <summary>
+    /// Moves one Preparing application to Applied, dating it to the
+    /// confirmation email rather than today — that's when the application
+    /// actually landed, and the pipeline's date ordering depends on it.
+    /// </summary>
+    private async Task ApplyConfirmedAsync(Guid applicationId, DateTime confirmedAtUtc, CancellationToken cancellationToken)
+    {
+        var application = await db.Applications
+            .FirstOrDefaultAsync(a => a.Id == applicationId, cancellationToken);
+
+        if (application is null || application.Status != ApplicationStatus.Preparing)
+        {
+            return;
+        }
+
+        db.StatusChanges.Add(new StatusChange
+        {
+            Id = Guid.NewGuid(),
+            ApplicationId = application.Id,
+            FromStatus = application.Status,
+            ToStatus = ApplicationStatus.Applied,
+            ChangedAtUtc = DateTime.UtcNow,
+            Source = StatusChangeSource.EmailAutomatic,
+        });
+
+        application.Status = ApplicationStatus.Applied;
+        application.DateApplied = DateOnly.FromDateTime(confirmedAtUtc);
+
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private static SuggestedStatusUpdateResponse ToResponse(SuggestedStatusUpdate s) => new()

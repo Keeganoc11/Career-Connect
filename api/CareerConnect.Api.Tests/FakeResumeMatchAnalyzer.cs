@@ -30,6 +30,9 @@ public sealed class FakeResumeMatchAnalyzer : IResumeMatchAnalyzer
         ],
         ModelId: "claude-opus-5");
 
+    /// <summary>Scores to return in order, for tests that need the score to move between calls. Falls back to Result once drained.</summary>
+    public Queue<int> ScoreSequence { get; } = new();
+
     public int CallCount { get; private set; }
     public string? LastResumeText { get; private set; }
     public string? LastJobDescriptionText { get; private set; }
@@ -50,6 +53,8 @@ public sealed class FakeResumeMatchAnalyzer : IResumeMatchAnalyzer
             throw ThrowOnAnalyze;
         }
 
-        return Task.FromResult(Result);
+        return Task.FromResult(ScoreSequence.Count > 0
+            ? Result with { Score = ScoreSequence.Dequeue() }
+            : Result);
     }
 }

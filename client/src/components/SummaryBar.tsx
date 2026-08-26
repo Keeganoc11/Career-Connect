@@ -13,9 +13,9 @@ export function SummaryBar({ summary, activeFilter, onFilterChange }: Props) {
 
   return (
     <section aria-label="Pipeline summary">
-      {/* Eight across only once there's genuinely room; four otherwise, so the
-          longer labels ("Phone Screen") never truncate. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
+      {/* All nine across only once there's genuinely room; three or five
+          otherwise, so the longer labels ("Phone Screen") never truncate. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9">
         {/* Total gets the brand treatment — it's the headline number. */}
         <button
           type="button"

@@ -51,7 +51,7 @@ public class ScheduledGmailScanRunner(
             return;
         }
 
-        if (success.StatusUpdates.Count == 0 && success.NewApplications.Count == 0)
+        if (success.StatusUpdates.Count == 0 && success.NewApplications.Count == 0 && success.AutoApplied.Count == 0)
         {
             return;
         }
@@ -66,6 +66,7 @@ public class ScheduledGmailScanRunner(
         {
             StatusUpdates = success.StatusUpdates,
             NewApplications = success.NewApplications,
+            AutoApplied = success.AutoApplied,
         };
 
         // Overwrites any previous pending result rather than merging — the
