@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import type { Application, ApplicationStatus, MatchResult, PrepRun } from '../api/types'
+import type { Application, ApplicationStatus, InterviewEvent, MatchResult, PrepRun } from '../api/types'
 import { STATUS_ORDER } from '../lib/status'
-import { formatDate, formatRelative } from '../lib/format'
+import { formatDate, formatRelative, formatUntil } from '../lib/format'
 import { InlineStatusSelect } from './InlineStatusSelect'
 import { MatchScoreCell } from './MatchScoreCell'
 import { PrepStatusCell } from './PrepStatusCell'
@@ -18,9 +18,18 @@ interface Props {
   onScore: (application: Application) => void
   onOpenMatch: (application: Application) => void
   onOpenPrep: (application: Application) => void
+  onOpenInterviews: (application: Application) => void
   onOpenTools: (application: Application) => void
   onEdit: (application: Application) => void
   onDelete: (application: Application) => void
+}
+
+/** The soonest interview still ahead of us, if any — past rounds stay in the modal. */
+function nextInterview(application: Application): InterviewEvent | undefined {
+  const now = Date.now()
+  return application.interviews
+    .filter((i) => new Date(i.scheduledAtUtc).getTime() >= now)
+    .sort((a, b) => a.scheduledAtUtc.localeCompare(b.scheduledAtUtc))[0]
 }
 
 const columns: { key: SortKey; label: string; className?: string }[] = [
@@ -41,6 +50,7 @@ export function ApplicationsTable({
   onScore,
   onOpenMatch,
   onOpenPrep,
+  onOpenInterviews,
   onOpenTools,
   onEdit,
   onDelete,
@@ -137,6 +147,15 @@ export function ApplicationsTable({
                     </>
                   )}
                 </div>
+                {nextInterview(application) && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenInterviews(application)}
+                    className="mt-1.5 rounded-full bg-fuchsia-50 px-2.5 py-0.5 text-xs font-bold text-fuchsia-800 ring-1 ring-fuchsia-600/20 ring-inset transition hover:bg-fuchsia-100"
+                  >
+                    📅 {formatUntil(nextInterview(application)!.scheduledAtUtc)}
+                  </button>
+                )}
               </td>
               <td className="px-5 py-4">
                 <InlineStatusSelect
@@ -169,6 +188,13 @@ export function ApplicationsTable({
               </td>
               <td className="px-5 py-4 text-right whitespace-nowrap">
                 <div className="flex justify-end gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                  <button
+                    type="button"
+                    onClick={() => onOpenInterviews(application)}
+                    className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                  >
+                    📅 Interviews
+                  </button>
                   <button
                     type="button"
                     onClick={() => onOpenTools(application)}

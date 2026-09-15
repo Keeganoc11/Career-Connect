@@ -12,6 +12,7 @@ public class GmailController(
     IGmailOAuthService oauth,
     IGmailUpdateScanner scanner,
     IApplicationService applications,
+    IInterviewService interviews,
     IDataProtectionProvider dataProtectionProvider,
     IConfiguration configuration) : ApiControllerBase
 {
@@ -120,6 +121,7 @@ public class GmailController(
                 ConnectedAtUtc = connection.ConnectedAtUtc,
                 LastCheckedAtUtc = connection.LastCheckedAtUtc,
                 HasPendingSuggestions = connection.HasPendingSuggestions,
+                CalendarEnabled = connection.CalendarEnabled,
             });
     }
 
@@ -142,9 +144,29 @@ public class GmailController(
     public async Task<ActionResult<ApplicationResponse>> AcceptSuggestion(AcceptSuggestionRequest request)
     {
         var updated = await applications.UpdateStatusAsync(
-            UserId, request.ApplicationId, request.Status, Domain.StatusChangeSource.EmailSuggestion);
+            UserId, request.ApplicationId, request.Status, Domain.ChangeSource.EmailSuggestion);
 
-        return updated is null ? NotFound() : Ok(updated);
+        if (updated is null)
+        {
+            return NotFound();
+        }
+
+        // One review, both outcomes: the user confirmed what the email means,
+        // so the time it named goes on the calendar in the same action.
+        if (request.InterviewAtUtc is { } interviewAt)
+        {
+            await interviews.RecordFromEmailAsync(
+                UserId,
+                request.ApplicationId,
+                interviewAt,
+                request.InterviewKind ?? Domain.InterviewKind.Other,
+                notes: null);
+
+            // Re-read so the response carries the interview just scheduled.
+            updated = await applications.GetAsync(UserId, request.ApplicationId) ?? updated;
+        }
+
+        return Ok(updated);
     }
 
     [HttpDelete("connection")]

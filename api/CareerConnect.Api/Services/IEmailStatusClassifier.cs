@@ -1,6 +1,12 @@
 namespace CareerConnect.Api.Services;
 
-public record CandidateEmail(int Index, string Subject, string From, string Snippet, DateTime ReceivedAtUtc);
+/// <summary>
+/// MessageId carries no content — it's the handle for fetching this message's
+/// body later, which only happens for emails already identified as interview
+/// invitations. Defaulted so the classifier and its tests never need it.
+/// </summary>
+public record CandidateEmail(
+    int Index, string Subject, string From, string Snippet, DateTime ReceivedAtUtc, string? MessageId = null);
 
 public record OpenApplicationContext(int Index, string CompanyName, string RoleTitle, string CurrentStatus);
 

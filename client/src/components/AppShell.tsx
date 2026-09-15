@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { auth } from '../api/client'
 
-export type View = 'tracker' | 'resumes'
+export type View = 'agenda' | 'tracker' | 'resumes'
 
 interface Props {
   view: View
@@ -11,6 +11,7 @@ interface Props {
 }
 
 const tabs: { id: View; label: string; title: string }[] = [
+  { id: 'agenda', label: 'Agenda', title: 'Agenda · Career Connect' },
   { id: 'tracker', label: 'Applications', title: 'Applications · Career Connect' },
   { id: 'resumes', label: 'Resumes', title: 'Resumes · Career Connect' },
 ]

@@ -12,6 +12,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<MatchResult> MatchResults => Set<MatchResult>();
     public DbSet<GmailConnection> GmailConnections => Set<GmailConnection>();
     public DbSet<PrepRun> PrepRuns => Set<PrepRun>();
+    public DbSet<InterviewEvent> InterviewEvents => Set<InterviewEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -101,6 +102,21 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                .OnDelete(DeleteBehavior.Cascade);
 
             run.HasIndex(r => new { r.ApplicationId, r.StartedAtUtc });
+        });
+
+        modelBuilder.Entity<InterviewEvent>(interview =>
+        {
+            interview.Property(i => i.Kind).HasConversion<string>().HasMaxLength(50);
+            interview.Property(i => i.Source).HasConversion<string>().HasMaxLength(50);
+            interview.Property(i => i.CalendarEventId).HasMaxLength(1024);
+
+            interview.HasOne(i => i.Application)
+                     .WithMany(a => a.Interviews)
+                     .HasForeignKey(i => i.ApplicationId)
+                     .OnDelete(DeleteBehavior.Cascade);
+
+            // Every read is "what's coming up", so the schedule is the index.
+            interview.HasIndex(i => new { i.ApplicationId, i.ScheduledAtUtc });
         });
 
         modelBuilder.Entity<GmailConnection>(gmail =>

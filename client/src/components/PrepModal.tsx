@@ -90,6 +90,31 @@ export function PrepModal({ application, run, autoStart, onRunChange, onMarkAppl
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
 
+  // Set once the user types into either document. The fresh load below must
+  // never replace text they're already editing.
+  const editedRef = useRef(false)
+
+  // The prop is only as current as the page's last load, and the documents can
+  // change elsewhere in the meantime (a cover letter written from another
+  // window). Seeding from it alone would let "Save edits" write a stale copy
+  // back over the newer one, so load the saved documents on open.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const fresh = await api.getApplication(application.id)
+        if (cancelled || editedRef.current) return
+        setResumeText(fresh.tailoredResumeText ?? '')
+        setCoverLetterText(fresh.coverLetterText ?? '')
+      } catch {
+        // Keep the seeded copy; a server that's down shows up across the page.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [application.id])
+
   // A ref, not state: the auto-start effect must not re-run when it flips, or
   // opening this modal could queue a second pass for the same application.
   const autoStarted = useRef(false)
@@ -284,6 +309,7 @@ export function PrepModal({ application, run, autoStart, onRunChange, onMarkAppl
                       title="Tailored resume"
                       value={resumeText}
                       onChange={(next) => {
+                        editedRef.current = true
                         setResumeText(next)
                         setSavedAt(null)
                       }}
@@ -295,6 +321,7 @@ export function PrepModal({ application, run, autoStart, onRunChange, onMarkAppl
                       title="Cover letter"
                       value={coverLetterText}
                       onChange={(next) => {
+                        editedRef.current = true
                         setCoverLetterText(next)
                         setSavedAt(null)
                       }}

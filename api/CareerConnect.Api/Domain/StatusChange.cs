@@ -9,7 +9,7 @@ public class StatusChange
     public ApplicationStatus? FromStatus { get; set; }
     public ApplicationStatus ToStatus { get; set; }
     public DateTime ChangedAtUtc { get; set; }
-    public StatusChangeSource Source { get; set; }
+    public ChangeSource Source { get; set; }
 
     public Application Application { get; set; } = null!;
 }

@@ -10,7 +10,7 @@ public interface IApplicationService
     Task<ApplicationResponse> CreateAsync(Guid userId, CreateApplicationRequest request);
     Task<ApplicationResponse?> UpdateAsync(Guid userId, Guid id, UpdateApplicationRequest request);
     Task<ApplicationResponse?> UpdateStatusAsync(
-        Guid userId, Guid id, ApplicationStatus newStatus, StatusChangeSource source = StatusChangeSource.Manual);
+        Guid userId, Guid id, ApplicationStatus newStatus, ChangeSource source = ChangeSource.Manual);
     Task<ApplicationResponse?> UpdateDocumentsAsync(Guid userId, Guid id, UpdateApplicationDocumentsRequest request);
     Task<bool> DeleteAsync(Guid userId, Guid id);
     Task<SummaryResponse> GetSummaryAsync(Guid userId);

@@ -1,11 +1,11 @@
 namespace CareerConnect.Api.Domain;
 
-/// <summary>Where a status change originated.</summary>
-public enum StatusChangeSource
+/// <summary>Where a recorded change originated — status transitions and scheduled interviews alike.</summary>
+public enum ChangeSource
 {
     Manual,
 
-    /// <summary>The user accepted a status change Gmail scanning suggested.</summary>
+    /// <summary>The user accepted something Gmail scanning suggested.</summary>
     EmailSuggestion,
 
     /// <summary>

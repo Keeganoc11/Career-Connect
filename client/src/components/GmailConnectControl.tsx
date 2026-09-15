@@ -36,6 +36,18 @@ export function GmailConnectControl({ status, scanning, onConnect, onScan, onDis
             : 'never checked'}
         </span>
       </div>
+      {/* Google won't widen an existing token, so a connection made before
+          calendar sync existed has to be redone rather than upgraded. */}
+      {!status.calendarEnabled && (
+        <button
+          type="button"
+          onClick={onConnect}
+          title="Reconnect to let Career Connect put interviews on your calendar"
+          className="shrink-0 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-900 ring-1 ring-amber-600/20 ring-inset transition hover:bg-amber-100"
+        >
+          📅 Reconnect for calendar sync
+        </button>
+      )}
       <button
         type="button"
         onClick={onScan}

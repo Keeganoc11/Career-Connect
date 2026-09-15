@@ -5,12 +5,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CareerConnect.Api.Services;
 
-public class ApplicationService(AppDbContext db) : IApplicationService
+public class ApplicationService(AppDbContext db, IInterviewCalendarSync calendar) : IApplicationService
 {
     public async Task<List<ApplicationResponse>> ListAsync(Guid userId)
     {
         var applications = await db.Applications
             .AsNoTracking()
+            // The list view shows each row's next interview, so these come along
+            // rather than costing a request per row.
+            .Include(a => a.Interviews)
             .Where(a => a.UserId == userId)
             .OrderByDescending(a => a.DateApplied)
             .ThenByDescending(a => a.CreatedAtUtc)
@@ -46,7 +49,7 @@ public class ApplicationService(AppDbContext db) : IApplicationService
                     FromStatus = null,
                     ToStatus = request.Status,
                     ChangedAtUtc = DateTime.UtcNow,
-                    Source = StatusChangeSource.Manual
+                    Source = ChangeSource.Manual
                 }
             ]
         };
@@ -77,7 +80,7 @@ public class ApplicationService(AppDbContext db) : IApplicationService
     }
 
     public async Task<ApplicationResponse?> UpdateStatusAsync(
-        Guid userId, Guid id, ApplicationStatus newStatus, StatusChangeSource source = StatusChangeSource.Manual)
+        Guid userId, Guid id, ApplicationStatus newStatus, ChangeSource source = ChangeSource.Manual)
     {
         var application = await FindWithHistoryAsync(userId, id, track: true);
         if (application is null)
@@ -126,10 +129,22 @@ public class ApplicationService(AppDbContext db) : IApplicationService
     public async Task<bool> DeleteAsync(Guid userId, Guid id)
     {
         var application = await db.Applications
+            .Include(a => a.Interviews)
             .FirstOrDefaultAsync(a => a.UserId == userId && a.Id == id);
         if (application is null)
         {
             return false;
+        }
+
+        // Interview rows cascade away with the application, but their Google
+        // Calendar copies don't — remove those first, or they'd sit on the
+        // user's calendar with nothing left here to manage them. The sync never
+        // throws, so a calendar outage can't block the delete.
+        foreach (var calendarEventId in application.Interviews
+                     .Select(i => i.CalendarEventId)
+                     .OfType<string>())
+        {
+            await calendar.DeleteAsync(userId, calendarEventId);
         }
 
         db.Applications.Remove(application);
@@ -161,7 +176,9 @@ public class ApplicationService(AppDbContext db) : IApplicationService
 
     private Task<Application?> FindWithHistoryAsync(Guid userId, Guid id, bool track)
     {
-        IQueryable<Application> query = db.Applications.Include(a => a.StatusHistory);
+        IQueryable<Application> query = db.Applications
+            .Include(a => a.StatusHistory)
+            .Include(a => a.Interviews);
         if (!track)
         {
             query = query.AsNoTracking();
@@ -187,6 +204,19 @@ public class ApplicationService(AppDbContext db) : IApplicationService
         CoverLetterText = a.CoverLetterText,
         CreatedAtUtc = a.CreatedAtUtc,
         UpdatedAtUtc = a.UpdatedAtUtc,
+        Interviews = a.Interviews
+            .OrderBy(i => i.ScheduledAtUtc)
+            .Select(i => new InterviewEventResponse
+            {
+                Id = i.Id,
+                ApplicationId = i.ApplicationId,
+                ScheduledAtUtc = i.ScheduledAtUtc,
+                Kind = i.Kind,
+                Notes = i.Notes,
+                Source = i.Source,
+                OnCalendar = i.CalendarEventId is not null,
+            })
+            .ToList(),
         StatusHistory = includeHistory
             ? a.StatusHistory
                 .OrderBy(c => c.ChangedAtUtc)

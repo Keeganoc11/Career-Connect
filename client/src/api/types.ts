@@ -18,6 +18,60 @@ export interface StatusChange {
   source: string
 }
 
+export const INTERVIEW_KINDS = ['PhoneScreen', 'Technical', 'Onsite', 'Final', 'Other'] as const
+
+export type InterviewKind = (typeof INTERVIEW_KINDS)[number]
+
+export interface InterviewEvent {
+  id: string
+  applicationId: string
+  scheduledAtUtc: string
+  kind: InterviewKind
+  notes: string | null
+  source: string
+  onCalendar: boolean
+}
+
+export interface InterviewInput {
+  scheduledAtUtc: string
+  kind: InterviewKind
+  notes?: string
+}
+
+export type NudgeKind =
+  | 'ReadyToApply'
+  | 'NeverPrepped'
+  | 'Silent'
+  | 'ProbablyGhosted'
+  | 'AwaitingYou'
+
+export interface AgendaNudge {
+  applicationId: string
+  companyName: string
+  roleTitle: string
+  status: ApplicationStatus
+  kind: NudgeKind
+  daysSinceActivity: number
+  message: string
+}
+
+export interface UpcomingInterview {
+  interviewId: string
+  applicationId: string
+  companyName: string
+  roleTitle: string
+  scheduledAtUtc: string
+  kind: InterviewKind
+  notes: string | null
+  onCalendar: boolean
+  hasPrep: boolean
+}
+
+export interface Agenda {
+  upcomingInterviews: UpcomingInterview[]
+  nudges: AgendaNudge[]
+}
+
 export interface Application {
   id: string
   companyName: string
@@ -32,6 +86,7 @@ export interface Application {
   createdAtUtc: string
   updatedAtUtc: string
   statusHistory?: StatusChange[] | null
+  interviews: InterviewEvent[]
 }
 
 export type PrepRunStatus = 'Running' | 'Succeeded' | 'Failed'
@@ -129,9 +184,14 @@ export interface GmailConnectionStatus {
   connectedAtUtc?: string
   lastCheckedAtUtc?: string
   hasPendingSuggestions: boolean
+  /** False on connections predating calendar sync — Google can't widen them, so they need reconnecting. */
+  calendarEnabled: boolean
 }
 
+/** Extra fields carry the interview time a scan read out of the email, when it found one. */
 export interface SuggestedStatusUpdate {
+  interviewAtUtc?: string | null
+  interviewKind?: InterviewKind | null
   applicationId: string
   companyName: string
   roleTitle: string

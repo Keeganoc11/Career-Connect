@@ -1,10 +1,11 @@
 namespace CareerConnect.Api.Domain;
 
 /// <summary>
-/// One user's Gmail OAuth connection. Only the encrypted refresh token is
-/// stored — access tokens are minted on demand and never persisted. Scope is
-/// read-only (gmail.readonly); nothing in this app can send, delete, or
-/// modify mail.
+/// One user's Google OAuth connection. Only the encrypted refresh token is
+/// stored — access tokens are minted on demand and never persisted. Mail scope
+/// is read-only (gmail.readonly); nothing in this app can send, delete, or
+/// modify mail. Calendar scope, when granted, is write — it creates and
+/// updates the interview events this app puts there, and nothing else.
 /// </summary>
 public class GmailConnection
 {
@@ -15,6 +16,14 @@ public class GmailConnection
     public required string EncryptedRefreshToken { get; set; }
 
     public DateTime ConnectedAtUtc { get; set; }
+
+    /// <summary>
+    /// Whether Google actually granted calendar access. Connections made before
+    /// calendar sync existed have a token scoped to mail only, and Google won't
+    /// widen it retroactively — so this drives a "reconnect to enable" prompt
+    /// instead of calendar writes failing with a confusing 403.
+    /// </summary>
+    public bool CalendarEnabled { get; set; }
 
     /// <summary>Watermark for the next scan's Gmail query — null before the first scan.</summary>
     public DateTime? LastCheckedAtUtc { get; set; }

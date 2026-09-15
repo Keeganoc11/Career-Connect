@@ -6,6 +6,7 @@ using Google.Apis.Auth.OAuth2;
 using Google.Apis.Auth.OAuth2.Flows;
 using Google.Apis.Auth.OAuth2.Requests;
 using Google.Apis.Auth.OAuth2.Responses;
+using Google.Apis.Calendar.v3;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Services;
 using Microsoft.AspNetCore.DataProtection;
@@ -19,7 +20,11 @@ public class GmailOAuthService : IGmailOAuthService
     // is scoped to exactly this secret so it can never be cross-used with,
     // say, the OAuth state protector in the controller.
     private const string RefreshTokenProtectionPurpose = "CareerConnect.GmailRefreshToken.v1";
-    private static readonly string[] Scopes = [GmailService.Scope.GmailReadonly];
+
+    // CalendarEvents, not the full Calendar scope: this app only needs to manage
+    // the interview events it creates, never to read the rest of the calendar.
+    private static readonly string[] Scopes =
+        [GmailService.Scope.GmailReadonly, CalendarService.Scope.CalendarEvents];
 
     private readonly AppDbContext _db;
     private readonly IDataProtector _protector;
@@ -113,6 +118,11 @@ public class GmailOAuthService : IGmailOAuthService
         var profile = await gmailService.Users.GetProfile("me").ExecuteAsync(cancellationToken);
         var email = profile.EmailAddress ?? "unknown";
 
+        // Google grants what the user consented to, which can be narrower than
+        // what we asked for — they can untick calendar on the consent screen.
+        // Record what actually came back rather than assuming.
+        var calendarGranted = token.Scope?.Contains(CalendarService.Scope.CalendarEvents, StringComparison.Ordinal) ?? false;
+
         var utcNow = DateTime.UtcNow;
         var connection = await _db.GmailConnections.FirstOrDefaultAsync(g => g.UserId == userId, cancellationToken);
         if (connection is null)
@@ -124,6 +134,7 @@ public class GmailOAuthService : IGmailOAuthService
                 ConnectedEmail = email,
                 EncryptedRefreshToken = _protector.Protect(token.RefreshToken),
                 ConnectedAtUtc = utcNow,
+                CalendarEnabled = calendarGranted,
             };
             _db.GmailConnections.Add(connection);
         }
@@ -132,6 +143,7 @@ public class GmailOAuthService : IGmailOAuthService
             connection.ConnectedEmail = email;
             connection.EncryptedRefreshToken = _protector.Protect(token.RefreshToken);
             connection.ConnectedAtUtc = utcNow;
+            connection.CalendarEnabled = calendarGranted;
             // Reset the watermark — reconnecting is a good moment to re-scan
             // recent mail in case anything was missed while disconnected.
             connection.LastCheckedAtUtc = null;
@@ -140,7 +152,7 @@ public class GmailOAuthService : IGmailOAuthService
         await _db.SaveChangesAsync(cancellationToken);
         return new GmailConnectionInfo(
             connection.ConnectedEmail, connection.ConnectedAtUtc, connection.LastCheckedAtUtc,
-            connection.PendingScanResultJson is not null);
+            connection.PendingScanResultJson is not null, connection.CalendarEnabled);
     }
 
     public async Task<GmailConnectionInfo?> GetConnectionAsync(Guid userId, CancellationToken cancellationToken = default)
@@ -151,7 +163,7 @@ public class GmailOAuthService : IGmailOAuthService
             ? null
             : new GmailConnectionInfo(
                 connection.ConnectedEmail, connection.ConnectedAtUtc, connection.LastCheckedAtUtc,
-                connection.PendingScanResultJson is not null);
+                connection.PendingScanResultJson is not null, connection.CalendarEnabled);
     }
 
     public async Task DisconnectAsync(Guid userId, CancellationToken cancellationToken = default)
@@ -218,6 +230,42 @@ public class GmailOAuthService : IGmailOAuthService
         var credential = new UserCredential(flow, userId.ToString(), new TokenResponse { RefreshToken = refreshToken });
 
         return new GmailService(new BaseClientService.Initializer
+        {
+            HttpClientInitializer = credential,
+            ApplicationName = "Career Connect",
+        });
+    }
+
+    /// <summary>
+    /// A calendar client for this user, or null when there's no connection or
+    /// the stored token predates calendar scope. Callers treat null as "sync is
+    /// off" — it isn't an error, and it must never block saving an interview.
+    /// </summary>
+    public async Task<CalendarService?> GetCalendarServiceAsync(
+        Guid userId, CancellationToken cancellationToken = default)
+    {
+        var connection = await _db.GmailConnections.AsNoTracking()
+            .FirstOrDefaultAsync(g => g.UserId == userId, cancellationToken);
+        if (connection is null || !connection.CalendarEnabled)
+        {
+            return null;
+        }
+
+        string refreshToken;
+        try
+        {
+            refreshToken = _protector.Unprotect(connection.EncryptedRefreshToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not decrypt the stored refresh token for user {UserId}.", userId);
+            return null;
+        }
+
+        var flow = CreateFlow();
+        var credential = new UserCredential(flow, userId.ToString(), new TokenResponse { RefreshToken = refreshToken });
+
+        return new CalendarService(new BaseClientService.Initializer
         {
             HttpClientInitializer = credential,
             ApplicationName = "Career Connect",

@@ -3,9 +3,12 @@ using Google.Apis.Gmail.v1;
 namespace CareerConnect.Api.Services;
 
 /// <summary>
-/// Searches Gmail for messages that look job-related and pulls just enough
-/// per message (subject, sender, snippet) to hand to the classifier — never
-/// the full body, and nothing is persisted beyond the scan that requested it.
+/// Searches Gmail for messages that look job-related and pulls just enough per
+/// message (subject, sender, snippet) to hand to the classifier. Full bodies
+/// are fetched only through <see cref="GetBodiesAsync"/>, and only for emails
+/// already identified as interview invitations — the scheduled time lives in
+/// the body and nowhere else. Nothing is persisted beyond the scan that
+/// requested it.
 /// </summary>
 public class GmailMailReader(IGmailOAuthService oauth) : IGmailMailReader
 {
@@ -59,7 +62,7 @@ public class GmailMailReader(IGmailOAuthService oauth) : IGmailMailReader
                     ? DateTimeOffset.FromUnixTimeMilliseconds(message.InternalDate.Value).UtcDateTime
                     : DateTime.UtcNow;
 
-                return new CandidateEmail(index, subject, from, message.Snippet ?? "", receivedAtUtc);
+                return new CandidateEmail(index, subject, from, message.Snippet ?? "", receivedAtUtc, messageRef.Id);
             }
             finally
             {
@@ -71,5 +74,80 @@ public class GmailMailReader(IGmailOAuthService oauth) : IGmailMailReader
         // so CandidateEmail.Index still lines up with each email's position.
         var candidates = await Task.WhenAll(fetches);
         return candidates.ToList();
+    }
+
+    public async Task<Dictionary<string, string>> GetBodiesAsync(
+        Guid userId, IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken = default)
+    {
+        if (messageIds.Count == 0)
+        {
+            return [];
+        }
+
+        var gmail = await oauth.GetGmailServiceAsync(userId, cancellationToken)
+            ?? throw new InvalidOperationException("Gmail is not connected.");
+        using var _ = gmail;
+
+        using var throttle = new SemaphoreSlim(MaxConcurrentMessageFetches);
+        var fetches = messageIds.Select(async id =>
+        {
+            await throttle.WaitAsync(cancellationToken);
+            try
+            {
+                var getRequest = gmail.Users.Messages.Get("me", id);
+                getRequest.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Full;
+                var message = await getRequest.ExecuteAsync(cancellationToken);
+                return (Id: id, Body: ExtractPlainText(message.Payload));
+            }
+            catch (Exception)
+            {
+                // One unreadable message shouldn't cost the whole batch its
+                // times; it just won't get a date extracted.
+                return (Id: id, Body: (string?)null);
+            }
+            finally
+            {
+                throttle.Release();
+            }
+        });
+
+        var results = await Task.WhenAll(fetches);
+        return results
+            .Where(r => !string.IsNullOrWhiteSpace(r.Body))
+            .ToDictionary(r => r.Id, r => r.Body!);
+    }
+
+    /// <summary>
+    /// Walks the MIME tree for text/plain, which real invitations always carry
+    /// alongside their HTML. Preferring it avoids shipping markup to the model
+    /// and keeps the extraction prompt readable.
+    /// </summary>
+    private static string? ExtractPlainText(Google.Apis.Gmail.v1.Data.MessagePart? part)
+    {
+        if (part is null)
+        {
+            return null;
+        }
+
+        if (part.MimeType == "text/plain" && part.Body?.Data is not null)
+        {
+            return DecodeBase64Url(part.Body.Data);
+        }
+
+        return part.Parts?.Select(ExtractPlainText).FirstOrDefault(text => text is not null);
+    }
+
+    private static string? DecodeBase64Url(string data)
+    {
+        try
+        {
+            var padded = data.Replace('-', '+').Replace('_', '/');
+            padded = padded.PadRight(padded.Length + (4 - padded.Length % 4) % 4, '=');
+            return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(padded));
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
     }
 }

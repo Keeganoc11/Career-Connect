@@ -10,13 +10,14 @@ public sealed class GmailUpdateScannerTests : IDisposable
     private readonly FakeGmailOAuthService _oauth = new();
     private readonly FakeGmailMailReader _mailReader = new();
     private readonly FakeEmailStatusClassifier _classifier = new();
+    private readonly FakeInterviewDetailsExtractor _interviewExtractor = new();
     private readonly GmailUpdateScanner _scanner;
     private readonly Guid _userId;
 
     public GmailUpdateScannerTests()
     {
         _userId = _fixture.SeedUser("me@example.com");
-        _scanner = new GmailUpdateScanner(_fixture.Db, _oauth, _mailReader, _classifier);
+        _scanner = new GmailUpdateScanner(_fixture.Db, _oauth, _mailReader, _classifier, _interviewExtractor);
     }
 
     public void Dispose() => _fixture.Dispose();
@@ -139,6 +140,112 @@ public sealed class GmailUpdateScannerTests : IDisposable
         Assert.Equal("recruiter@acme.com", suggestion.EmailFrom);
     }
 
+    /// <summary>Seeds one interview-invite email whose body the extractor will be asked to read.</summary>
+    private void SeedInterviewEmail(string messageId = "msg-1")
+    {
+        _mailReader.Result =
+        [
+            new CandidateEmail(0, "Interview invitation", "recruiter@acme.com", "We'd like to schedule...",
+                DateTime.UtcNow, messageId),
+        ];
+        _mailReader.Bodies = new Dictionary<string, string>
+        {
+            [messageId] = "We'd like to meet Thursday September 10th at 2pm Eastern.",
+        };
+        _classifier.Result =
+        [
+            new EmailClassificationMatch(0, 0, "Interview", "Explicit interview invite."),
+        ];
+    }
+
+    [Fact]
+    public async Task ScanAsync_ReadsTheInterviewTimeOutOfTheEmailBody()
+    {
+        _fixture.SeedApplication(_userId, "Acme", status: ApplicationStatus.Applied);
+        SeedInterviewEmail();
+        var scheduled = new DateTimeOffset(2026, 9, 10, 14, 0, 0, TimeSpan.FromHours(-4));
+        _interviewExtractor.ResultByIndex = new() { [0] = (scheduled, "Technical") };
+
+        var outcome = await _scanner.ScanAsync(_userId);
+
+        var suggestion = Assert.Single(Assert.IsType<GmailScanOutcome.Success>(outcome).StatusUpdates);
+        Assert.Equal(scheduled.UtcDateTime, suggestion.InterviewAtUtc);
+        Assert.Equal(InterviewKind.Technical, suggestion.InterviewKind);
+    }
+
+    [Fact]
+    public async Task ScanAsync_LeavesTheTimeUnset_WhenTheEmailNeverNamedOne()
+    {
+        _fixture.SeedApplication(_userId, "Acme", status: ApplicationStatus.Applied);
+        SeedInterviewEmail();
+        _interviewExtractor.ResultByIndex = new() { [0] = (null, "PhoneScreen") };
+
+        var outcome = await _scanner.ScanAsync(_userId);
+
+        var suggestion = Assert.Single(Assert.IsType<GmailScanOutcome.Success>(outcome).StatusUpdates);
+        Assert.Null(suggestion.InterviewAtUtc);
+    }
+
+    [Fact]
+    public async Task ScanAsync_OnlyOpensBodiesOfEmailsThatLookLikeInterviews()
+    {
+        _fixture.SeedApplication(_userId, "Acme", status: ApplicationStatus.Applied);
+        _mailReader.Result =
+        [
+            new CandidateEmail(0, "Thanks but no", "recruiter@acme.com", "unfortunately", DateTime.UtcNow, "msg-1"),
+        ];
+        _classifier.Result = [new EmailClassificationMatch(0, 0, "Rejected", "Explicit rejection.")];
+
+        await _scanner.ScanAsync(_userId);
+
+        // A rejection's body has nothing to schedule — never fetched, never sent to a model.
+        Assert.Empty(_mailReader.LastRequestedBodyIds);
+        Assert.Equal(0, _interviewExtractor.CallCount);
+    }
+
+    [Fact]
+    public async Task ScanAsync_StillReturnsTheSuggestion_WhenReadingTheBodyFails()
+    {
+        _fixture.SeedApplication(_userId, "Acme", status: ApplicationStatus.Applied);
+        SeedInterviewEmail();
+        _mailReader.ThrowOnReadBodies = new InvalidOperationException("Gmail hiccup");
+
+        var outcome = await _scanner.ScanAsync(_userId);
+
+        var suggestion = Assert.Single(Assert.IsType<GmailScanOutcome.Success>(outcome).StatusUpdates);
+        Assert.Equal(ApplicationStatus.Interview, suggestion.SuggestedStatus);
+        Assert.Null(suggestion.InterviewAtUtc);
+    }
+
+    [Fact]
+    public async Task ScanAsync_SkipsTheExtractionPassEntirely_WhenNoApiKeyIsConfigured()
+    {
+        _fixture.SeedApplication(_userId, "Acme", status: ApplicationStatus.Applied);
+        SeedInterviewEmail();
+        _interviewExtractor.IsConfigured = false;
+
+        var outcome = await _scanner.ScanAsync(_userId);
+
+        Assert.Single(Assert.IsType<GmailScanOutcome.Success>(outcome).StatusUpdates);
+        Assert.Empty(_mailReader.LastRequestedBodyIds);
+        Assert.Equal(0, _interviewExtractor.CallCount);
+    }
+
+    [Fact]
+    public async Task ScanAsync_GivesTheExtractorTheCompanyAndRoleForContext()
+    {
+        _fixture.SeedApplication(_userId, "Acme", status: ApplicationStatus.Applied);
+        SeedInterviewEmail();
+        _interviewExtractor.ResultByIndex = new() { [0] = (DateTimeOffset.UtcNow.AddDays(3), "Onsite") };
+
+        await _scanner.ScanAsync(_userId);
+
+        var context = Assert.Single(_interviewExtractor.LastEmails);
+        Assert.Equal("Acme", context.CompanyName);
+        Assert.Equal("Software Engineer", context.RoleTitle);
+        Assert.Contains("Thursday September 10th", context.Body);
+    }
+
     [Fact]
     public async Task ScanAsync_AutoAppliesAPreparingApplicationOnItsConfirmationEmail()
     {
@@ -163,7 +270,7 @@ public sealed class GmailUpdateScannerTests : IDisposable
 
         var change = await _fixture.Db.StatusChanges.AsNoTracking()
             .SingleAsync(c => c.ApplicationId == app.Id && c.ToStatus == ApplicationStatus.Applied);
-        Assert.Equal(StatusChangeSource.EmailAutomatic, change.Source);
+        Assert.Equal(ChangeSource.EmailAutomatic, change.Source);
     }
 
     [Fact]

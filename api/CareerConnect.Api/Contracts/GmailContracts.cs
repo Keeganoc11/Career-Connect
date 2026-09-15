@@ -9,6 +9,9 @@ public class GmailConnectionResponse
     public DateTime? ConnectedAtUtc { get; init; }
     public DateTime? LastCheckedAtUtc { get; init; }
     public bool HasPendingSuggestions { get; init; }
+
+    /// <summary>False on connections made before calendar sync existed — drives a "reconnect" prompt.</summary>
+    public bool CalendarEnabled { get; init; }
 }
 
 public class GmailAuthorizationUrlResponse
@@ -25,6 +28,16 @@ public class AcceptSuggestionRequest
 {
     public required Guid ApplicationId { get; init; }
     public required ApplicationStatus Status { get; init; }
+
+    /// <summary>
+    /// When the scan read a time out of the email, accepting also schedules the
+    /// interview. Client-supplied because the user can correct it first — a
+    /// misread time books the wrong appointment, and they're the authority on
+    /// their own calendar.
+    /// </summary>
+    public DateTime? InterviewAtUtc { get; init; }
+
+    public InterviewKind? InterviewKind { get; init; }
 }
 
 public class SuggestedStatusUpdateResponse
@@ -38,6 +51,11 @@ public class SuggestedStatusUpdateResponse
     public required string EmailSubject { get; init; }
     public required string EmailFrom { get; init; }
     public required DateTime EmailReceivedAtUtc { get; init; }
+
+    /// <summary>The interview time the email named, if it named one. Null is the common case.</summary>
+    public DateTime? InterviewAtUtc { get; init; }
+
+    public InterviewKind? InterviewKind { get; init; }
 }
 
 public class SuggestedNewApplicationResponse

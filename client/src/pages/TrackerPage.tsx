@@ -10,6 +10,7 @@ import type {
   MatchResult,
   PrepRun,
   ResumeSummary,
+  InterviewKind,
   SuggestedNewApplication,
   SuggestedStatusUpdate,
   Summary,
@@ -21,6 +22,7 @@ import { ApplicationFormModal } from '../components/ApplicationFormModal'
 import { MatchDetailModal } from '../components/MatchDetailModal'
 import { PrepModal } from '../components/PrepModal'
 import { AiToolsModal } from '../components/AiToolsModal'
+import { InterviewsModal } from '../components/InterviewsModal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { CopilotPanel } from '../components/CopilotPanel'
 import { GmailConnectControl } from '../components/GmailConnectControl'
@@ -43,6 +45,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [matchTarget, setMatchTarget] = useState<Application | null>(null)
   const [prepTarget, setPrepTarget] = useState<{ application: Application; autoStart: boolean } | null>(null)
   const [toolsTarget, setToolsTarget] = useState<Application | null>(null)
+  const [interviewsTarget, setInterviewsTarget] = useState<Application | null>(null)
   const [resumes, setResumes] = useState<ResumeSummary[]>([])
   const [tailoring, setTailoring] = useState(false)
   const [formTarget, setFormTarget] = useState<Application | null | 'new'>(null)
@@ -212,10 +215,13 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   // happened — not the moment the user clicks toward it. Otherwise
   // cancelling out of the follow-up form (or a failed status change) would
   // silently discard a suggestion the user never actually acted on.
-  const acceptGmailSuggestion = async (suggestion: SuggestedStatusUpdate) => {
+  const acceptGmailSuggestion = async (
+    suggestion: SuggestedStatusUpdate,
+    interview?: { interviewAtUtc: string; interviewKind: InterviewKind },
+  ) => {
     setBusyId(suggestion.applicationId)
     try {
-      await api.acceptGmailSuggestion(suggestion.applicationId, suggestion.suggestedStatus)
+      await api.acceptGmailSuggestion(suggestion.applicationId, suggestion.suggestedStatus, interview)
       await refresh()
       setGmailScanResult((current) =>
         current && { ...current, statusUpdates: current.statusUpdates.filter((s) => s !== suggestion) },
@@ -572,6 +578,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
             onScore={(application) => void score(application)}
             onOpenMatch={(application) => setMatchTarget(application)}
             onOpenPrep={openPrep}
+            onOpenInterviews={(application) => setInterviewsTarget(application)}
             onOpenTools={(application) => setToolsTarget(application)}
             onEdit={(application) => setFormTarget(application)}
             onDelete={(application) => setDeleteTarget(application)}
@@ -620,8 +627,20 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
         />
       )}
 
+      {interviewsTarget && (
+        <InterviewsModal
+          application={interviewsTarget}
+          onClose={() => setInterviewsTarget(null)}
+          onChanged={() => void refresh()}
+        />
+      )}
+
       {toolsTarget && (
-        <AiToolsModal application={toolsTarget} onClose={() => setToolsTarget(null)} />
+        <AiToolsModal
+          application={toolsTarget}
+          onClose={() => setToolsTarget(null)}
+          onChanged={() => void refresh()}
+        />
       )}
 
       {formTarget !== null && (

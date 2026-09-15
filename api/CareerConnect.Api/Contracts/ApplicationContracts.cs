@@ -80,7 +80,7 @@ public class StatusChangeResponse
     public ApplicationStatus? FromStatus { get; init; }
     public required ApplicationStatus ToStatus { get; init; }
     public required DateTime ChangedAtUtc { get; init; }
-    public required StatusChangeSource Source { get; init; }
+    public required ChangeSource Source { get; init; }
 }
 
 public class ApplicationResponse
@@ -98,6 +98,9 @@ public class ApplicationResponse
     public required DateTime CreatedAtUtc { get; init; }
     public required DateTime UpdatedAtUtc { get; init; }
     public List<StatusChangeResponse>? StatusHistory { get; init; }
+
+    /// <summary>Always present, unlike status history — the list view shows each row's next interview.</summary>
+    public required List<InterviewEventResponse> Interviews { get; init; }
 }
 
 public class StatusCountResponse

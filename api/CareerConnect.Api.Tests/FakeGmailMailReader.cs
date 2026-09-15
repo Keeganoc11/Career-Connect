@@ -21,4 +21,24 @@ public sealed class FakeGmailMailReader : IGmailMailReader
         }
         return Task.FromResult(Result);
     }
+
+    /// <summary>Bodies keyed by message id. Anything absent simply gets no time extracted.</summary>
+    public Dictionary<string, string> Bodies { get; set; } = [];
+
+    public Exception? ThrowOnReadBodies { get; set; }
+
+    public List<string> LastRequestedBodyIds { get; private set; } = [];
+
+    public Task<Dictionary<string, string>> GetBodiesAsync(
+        Guid userId, IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken = default)
+    {
+        LastRequestedBodyIds = messageIds.ToList();
+        if (ThrowOnReadBodies is not null)
+        {
+            throw ThrowOnReadBodies;
+        }
+
+        return Task.FromResult(
+            messageIds.Where(Bodies.ContainsKey).ToDictionary(id => id, id => Bodies[id]));
+    }
 }

@@ -23,6 +23,13 @@ public class Application
 
     public string? CoverLetterText { get; set; }
 
+    /// <summary>Interview prep, as JSON. Persisted rather than regenerated on
+    /// every view: it's several model calls, and you want to reread it the
+    /// morning of the interview, not pay to recreate it.</summary>
+    public string? InterviewPrepJson { get; set; }
+
+    public DateTime? InterviewPrepGeneratedAtUtc { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 
@@ -30,4 +37,5 @@ public class Application
     public List<StatusChange> StatusHistory { get; set; } = [];
     public List<MatchResult> MatchResults { get; set; } = [];
     public List<PrepRun> PrepRuns { get; set; } = [];
+    public List<InterviewEvent> Interviews { get; set; } = [];
 }

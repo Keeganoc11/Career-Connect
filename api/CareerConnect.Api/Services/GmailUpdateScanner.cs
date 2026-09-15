@@ -9,12 +9,17 @@ public class GmailUpdateScanner(
     AppDbContext db,
     IGmailOAuthService oauth,
     IGmailMailReader mailReader,
-    IEmailStatusClassifier classifier) : IGmailUpdateScanner
+    IEmailStatusClassifier classifier,
+    IInterviewDetailsExtractor interviewExtractor) : IGmailUpdateScanner
 {
     // Rejected/Withdrawn applications are done; scanning for updates on them
     // just adds noise the classifier has to filter back out.
     private static readonly ApplicationStatus[] ExcludedFromScan =
         [ApplicationStatus.Rejected, ApplicationStatus.Withdrawn];
+
+    /// <summary>The statuses whose emails are worth opening to look for a time.</summary>
+    private static readonly ApplicationStatus[] InterviewStatuses =
+        [ApplicationStatus.PhoneScreen, ApplicationStatus.Interview];
 
     public async Task<GmailScanOutcome> ScanAsync(Guid userId, CancellationToken cancellationToken = default)
     {
@@ -78,6 +83,10 @@ public class GmailUpdateScanner(
 
         var statusUpdates = new List<SuggestedStatusUpdate>();
         var autoApplied = new List<AutoAppliedResponse>();
+
+        // Which email produced each suggestion, so the interview pass can go
+        // back for the ones worth reading in full.
+        var interviewCandidates = new Dictionary<int, CandidateEmail>();
         foreach (var match in result.StatusMatches)
         {
             var email = emails.ElementAtOrDefault(match.EmailIndex);
@@ -126,7 +135,11 @@ public class GmailUpdateScanner(
                 email.Subject,
                 email.From,
                 email.ReceivedAtUtc));
+
+            interviewCandidates[statusUpdates.Count - 1] = email;
         }
+
+        await AttachInterviewTimesAsync(userId, statusUpdates, interviewCandidates, cancellationToken);
 
         // Defense in depth against the model re-reporting a company that's
         // already tracked, or reporting the same new company twice in one
@@ -171,6 +184,83 @@ public class GmailUpdateScanner(
     /// confirmation email rather than today — that's when the application
     /// actually landed, and the pipeline's date ordering depends on it.
     /// </summary>
+    /// <summary>
+    /// Second pass: for suggestions that point at an interview, open those
+    /// emails and read the scheduled time out of the body. Nothing is written —
+    /// the time rides on the suggestion so the user can correct it before
+    /// accepting, since a misread time books the wrong appointment.
+    /// </summary>
+    private async Task AttachInterviewTimesAsync(
+        Guid userId,
+        List<SuggestedStatusUpdate> statusUpdates,
+        Dictionary<int, CandidateEmail> emailsBySuggestion,
+        CancellationToken cancellationToken)
+    {
+        if (!interviewExtractor.IsConfigured)
+        {
+            return;
+        }
+
+        var targets = emailsBySuggestion
+            .Where(pair => InterviewStatuses.Contains(statusUpdates[pair.Key].SuggestedStatus)
+                        && pair.Value.MessageId is not null)
+            .ToList();
+
+        if (targets.Count == 0)
+        {
+            return;
+        }
+
+        Dictionary<string, string> bodies;
+        try
+        {
+            bodies = await mailReader.GetBodiesAsync(
+                userId, targets.Select(t => t.Value.MessageId!).Distinct().ToList(), cancellationToken);
+        }
+        catch (Exception)
+        {
+            // A status suggestion without a time is still worth showing.
+            return;
+        }
+
+        // The extractor keys its answers by the index it was given, so pass the
+        // suggestion's own index and read the results straight back onto it.
+        var contexts = targets
+            .Where(t => bodies.ContainsKey(t.Value.MessageId!))
+            .Select(t => new InterviewEmailContext(
+                t.Key,
+                t.Value.Subject,
+                bodies[t.Value.MessageId!],
+                t.Value.ReceivedAtUtc,
+                statusUpdates[t.Key].CompanyName,
+                statusUpdates[t.Key].RoleTitle))
+            .ToList();
+
+        if (contexts.Count == 0)
+        {
+            return;
+        }
+
+        var extracted = await interviewExtractor.ExtractAsync(contexts, cancellationToken);
+
+        foreach (var details in extracted)
+        {
+            if (details.ScheduledAt is not { } scheduledAt
+                || details.Index < 0
+                || details.Index >= statusUpdates.Count)
+            {
+                continue;
+            }
+
+            var kind = Enum.TryParse<InterviewKind>(details.Kind, out var parsed) ? parsed : InterviewKind.Other;
+            statusUpdates[details.Index] = statusUpdates[details.Index] with
+            {
+                InterviewAtUtc = scheduledAt.UtcDateTime,
+                InterviewKind = kind,
+            };
+        }
+    }
+
     private async Task ApplyConfirmedAsync(Guid applicationId, DateTime confirmedAtUtc, CancellationToken cancellationToken)
     {
         var application = await db.Applications
@@ -188,7 +278,7 @@ public class GmailUpdateScanner(
             FromStatus = application.Status,
             ToStatus = ApplicationStatus.Applied,
             ChangedAtUtc = DateTime.UtcNow,
-            Source = StatusChangeSource.EmailAutomatic,
+            Source = ChangeSource.EmailAutomatic,
         });
 
         application.Status = ApplicationStatus.Applied;
@@ -208,6 +298,8 @@ public class GmailUpdateScanner(
         EmailSubject = s.EmailSubject,
         EmailFrom = s.EmailFrom,
         EmailReceivedAtUtc = s.EmailReceivedAtUtc,
+        InterviewAtUtc = s.InterviewAtUtc,
+        InterviewKind = s.InterviewKind,
     };
 
     private static SuggestedNewApplicationResponse ToResponse(SuggestedNewApplication n) => new()

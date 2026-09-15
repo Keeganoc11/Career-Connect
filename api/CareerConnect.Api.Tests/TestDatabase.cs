@@ -64,6 +64,28 @@ public sealed class TestDatabase : IDisposable
         return application;
     }
 
+    public InterviewEvent SeedInterview(
+        Guid applicationId,
+        DateTime? scheduledAtUtc = null,
+        InterviewKind kind = InterviewKind.PhoneScreen,
+        ChangeSource source = ChangeSource.Manual,
+        string? calendarEventId = null)
+    {
+        var interview = new InterviewEvent
+        {
+            Id = Guid.NewGuid(),
+            ApplicationId = applicationId,
+            ScheduledAtUtc = scheduledAtUtc ?? new DateTime(2026, 9, 10, 14, 0, 0, DateTimeKind.Utc),
+            Kind = kind,
+            Source = source,
+            CalendarEventId = calendarEventId,
+            CreatedAtUtc = DateTime.UtcNow,
+        };
+        Db.InterviewEvents.Add(interview);
+        Db.SaveChanges();
+        return interview;
+    }
+
     public Resume SeedResume(Guid userId, string label = "Primary", bool isActive = true)
     {
         var resume = new Resume

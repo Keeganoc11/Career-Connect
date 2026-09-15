@@ -13,7 +13,10 @@ public record SuggestedStatusUpdate(
     string Reasoning,
     string EmailSubject,
     string EmailFrom,
-    DateTime EmailReceivedAtUtc);
+    DateTime EmailReceivedAtUtc,
+    /// <summary>The time the email named, if it named one. Null is the common case.</summary>
+    DateTime? InterviewAtUtc = null,
+    InterviewKind? InterviewKind = null);
 
 /// <summary>A candidate new application found during a scan, not yet tracked.</summary>
 public record SuggestedNewApplication(

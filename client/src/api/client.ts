@@ -1,10 +1,14 @@
 import type {
+  Agenda,
   Application,
   ApplicationInput,
   ApplicationStatus,
   CopilotInsights,
   GmailConnectionStatus,
   GmailScanResult,
+  InterviewEvent,
+  InterviewInput,
+  InterviewKind,
   InterviewPrep,
   JobPostingExtraction,
   LoginResponse,
@@ -248,6 +252,55 @@ export const api = {
     })
   },
 
+  getAgenda() {
+    return request<Agenda>('/api/agenda')
+  },
+
+  listInterviews(applicationId: string) {
+    return request<InterviewEvent[]>(`/api/applications/${applicationId}/interviews`)
+  },
+
+  createInterview(applicationId: string, input: InterviewInput) {
+    return request<InterviewEvent>(`/api/applications/${applicationId}/interviews`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  },
+
+  updateInterview(interviewId: string, input: InterviewInput) {
+    return request<InterviewEvent>(`/api/interviews/${interviewId}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    })
+  },
+
+  deleteInterview(interviewId: string) {
+    return request<void>(`/api/interviews/${interviewId}`, { method: 'DELETE' })
+  },
+
+  /**
+   * The .ics as text. Fetched rather than linked: the endpoint is authorized
+   * with the bearer token from localStorage, which a plain <a download> can't
+   * send — the browser would just get a 401 file.
+   */
+  async getInterviewIcs(interviewId: string) {
+    const headers = new Headers()
+    const token = auth.token
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+
+    let response: Response
+    try {
+      response = await fetch(`/api/interviews/${interviewId}.ics`, { headers })
+    } catch {
+      throw new ApiError(0, UNREACHABLE_MESSAGE)
+    }
+
+    if (!response.ok) {
+      throw new ApiError(response.status, `Couldn't build the calendar file (${response.status}).`)
+    }
+    return response.text()
+  },
+
   tailorResume(applicationId: string, resumeContent: string) {
     return request<{ content: string }>(`/api/applications/${applicationId}/tailor-resume`, {
       method: 'POST',
@@ -261,10 +314,17 @@ export const api = {
     })
   },
 
-  generateInterviewPrep(applicationId: string) {
-    return request<InterviewPrep>(`/api/applications/${applicationId}/interview-prep`, {
-      method: 'POST',
-    })
+  /** Returns the stored prep, generating it only if there isn't one (or `regenerate` forces a fresh pass). */
+  generateInterviewPrep(applicationId: string, regenerate = false) {
+    return request<InterviewPrep>(
+      `/api/applications/${applicationId}/interview-prep${regenerate ? '?regenerate=true' : ''}`,
+      { method: 'POST' },
+    )
+  },
+
+  /** The stored prep without a model call. Undefined when none has been generated. */
+  getInterviewPrep(applicationId: string) {
+    return request<InterviewPrep | undefined>(`/api/applications/${applicationId}/interview-prep`)
   },
 
   getGmailStatus() {
@@ -284,11 +344,19 @@ export const api = {
     return request<GmailScanResult>('/api/gmail/scan', { method: 'POST' })
   },
 
-  /** Applies a scan suggestion. Separate from updateStatus so history records that email drove it. */
-  acceptGmailSuggestion(applicationId: string, status: ApplicationStatus) {
+  /**
+   * Applies a scan suggestion. Separate from updateStatus so history records
+   * that email drove it. Passing an interview time schedules it in the same
+   * action — one review, both outcomes.
+   */
+  acceptGmailSuggestion(
+    applicationId: string,
+    status: ApplicationStatus,
+    interview?: { interviewAtUtc: string; interviewKind: InterviewKind },
+  ) {
     return request<Application>('/api/gmail/suggestions/accept', {
       method: 'POST',
-      body: JSON.stringify({ applicationId, status }),
+      body: JSON.stringify({ applicationId, status, ...interview }),
     })
   },
 

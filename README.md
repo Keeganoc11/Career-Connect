@@ -38,6 +38,16 @@ The four AI features above are individually useful but were each a manual button
 
 Applications now start at `Preparing` — found, not yet applied to. That's the stage prep runs in, and it's what makes the Gmail loop close: when a confirmation email arrives for a company you were preparing, the application moves to `Applied` on its own, dated to the email. Every other transition still goes through review — confirming an application you already decided to submit isn't a judgement call, but inferring an interview or rejection is.
 
+**After you apply (Phase 6)**
+
+The pipeline used to go quiet the moment you hit send. A search spends one afternoon preparing and three months in everything after it, so that half now does real work too:
+
+- **Interviews are real records, not a status label** — multiple rounds per application, each with a time, kind, and notes. A phone screen and the onsite two weeks later both exist, and past rounds stay visible after the status moves on
+- **Your calendar, automatically** — a scheduled interview is mirrored to Google Calendar, and edits and cancellations follow it there rather than stranding a duplicate. There's an `.ics` download too, for any calendar app and no OAuth at all
+- **Gmail reads the time out of the invite** — when a scan spots an interview email, a second pass opens that message and extracts the date. Accepting the suggestion books it in the same action, with the time shown editable first
+- **An Agenda that answers "what today?"** — upcoming interviews, plus applications that have gone quiet, escalating from "worth a follow-up" at two weeks to "probably ghosted" at a month. This is where prep closes its loop: *prepped and never sent* is the first thing it tells you
+- **Interview prep is kept** — generated once and stored, so it's still there the morning of the interview instead of costing another model call
+
 ## Roadmap
 
 | Phase | What | Why the data model was already ready |
@@ -47,6 +57,7 @@ Applications now start at `Preparing` — found, not yet applied to. That's the 
 | 3 | Job posting ingestion from a URL | Ingestion writes the same `Application` shape |
 | 4 | Email-based status detection | `StatusChange` rows carried a `Source` enum from day one — detection just writes rows with `EmailSuggestion` / `EmailAutomatic` |
 | 5 | Automated prep pipeline | Match results were already append-only and model-stamped, so a loop that scores repeatedly is history, not overwrites |
+| 6 | Post-apply workflow + calendar sync | That same `Source` enum generalized to `ChangeSource` and covered interviews unchanged — "did I enter this or did email find it?" was already a question the schema answered |
 
 ## Tech stack
 
@@ -90,7 +101,12 @@ client/                     React + TypeScript + Tailwind
 | GET | `/api/applications/{id}/prep` | Latest prep run — poll this for progress |
 | GET | `/api/applications/prep-runs` | Latest prep run per application, for the list view |
 | PUT | `/api/applications/{id}/documents` | Saves edits to the tailored resume / cover letter |
-| POST | `/api/gmail/suggestions/accept` | Applies a scan suggestion, stamping `EmailSuggestion` provenance |
+| POST | `/api/gmail/suggestions/accept` | Applies a scan suggestion, stamping `EmailSuggestion` provenance; schedules the interview too when the email named a time |
+| GET | `/api/agenda` | Upcoming interviews and applications that have gone quiet |
+| GET/POST | `/api/applications/{id}/interviews` | List / schedule interviews |
+| PUT/DELETE | `/api/interviews/{id}` | Reschedule or cancel — the calendar copy follows |
+| GET | `/api/interviews/{id}.ics` | The interview as an iCalendar download |
+| GET/POST | `/api/applications/{id}/interview-prep` | Stored prep / generate it (`?regenerate=true` forces a fresh pass) |
 | GET/POST | `/api/resumes` | List / create resume versions |
 | PUT/DELETE | `/api/resumes/{id}` | Edit or remove a resume |
 | PATCH | `/api/resumes/{id}/active` | Choose which resume new scores use |
@@ -173,7 +189,11 @@ dotnet user-secrets set "Gmail:ClientSecret" "YOUR_CLIENT_SECRET"
 
 Without these, everything else runs normally and Gmail endpoints return a 503 explaining what's missing.
 
-Once connected, Gmail is scanned automatically in the background (not just when you click "Check for updates") — once a day by default. Override with `Gmail:ScanIntervalHours` (set to `0` to disable). Findings are stored and surfaced the next time you open the app, same review-before-accept flow as a manual scan — nothing is ever applied automatically.
+Once connected, Gmail is scanned automatically in the background (not just when you click "Check for updates") — once a day by default. Override with `Gmail:ScanIntervalHours` (set to `0` to disable). Findings are stored and surfaced the next time you open the app, same review-before-accept flow as a manual scan.
+
+**What actually gets read.** A scan sends Claude only each candidate email's subject, sender, and the short Gmail snippet — never full bodies. The one exception is interview detection: an email the first pass has already identified as an interview invitation gets opened and its body sent, because the scheduled time appears there and nowhere else. That's a handful of messages per scan, not everything the search matched. The OAuth scope is unchanged (`gmail.readonly` always permitted this), and nothing is persisted beyond the scan that requested it.
+
+**Calendar sync** needs the `https://www.googleapis.com/auth/calendar.events` scope added to your OAuth consent screen in Google Cloud Console. Google won't widen a token that already exists, so an existing connection has to be disconnected and reconnected once — the app detects this and shows a "Reconnect for calendar sync" prompt rather than failing writes with a confusing 403. Career Connect only ever touches events it created; it never reads the rest of your calendar.
 
 ## Deploying (Railway)
 
@@ -217,3 +237,8 @@ Redeploys are safe to run repeatedly — migrations only apply what's new, and t
 - **The prep loop stops on non-improvement, not just on a pass count** — a rewrite can only reframe experience the resume already has, so once a pass stops helping, more passes only drift further from the original. The 3-pass cap is a backstop, not the usual exit.
 - **Tailored resumes live on the application, not in the resume library** — the library holds base versions the user maintains; one throwaway variant per posting would bury them.
 - **Preparing → Applied is the one automatic transition.** Everything else Gmail infers stays a suggestion. The asymmetry is deliberate: confirming an application the user already chose to submit is fact-checking, while inferring an interview or rejection is a judgement worth reviewing.
+- **Interviews are rows, not a date column on the application** — a search runs in rounds, and a phone screen and the onsite two weeks later are both real. Keeping them as history also means a past interview stays visible after the status has moved on.
+- **A model-read interview time is shown editable before it's accepted.** The extractor is told to return null rather than guess when an email doesn't state a timezone — a wrong offset puts a real appointment on someone's calendar at the wrong hour, which is worse than no appointment. The user confirming the time is the last check on that.
+- **Calendar sync never throws.** A Google outage must not look like a failure to schedule; the interview is saved either way and the sync is retried on the next edit. `CalendarEnabled` is recorded from the scope Google actually granted, not the one requested, since users can untick it on the consent screen.
+- **The Agenda is arithmetic, not a model call** — thresholds over timestamps. It should be free, instant, and identical for identical input; `ICopilotService` remains the AI counterpart for judgement.
+- **An imminent unprepped interview is flagged on its card, not as a separate nudge.** The urgency window is narrower than the upcoming window, so a nudge could only ever duplicate a card already on screen.

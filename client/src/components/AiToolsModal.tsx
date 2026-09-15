@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import type { Application, InterviewPrep } from '../api/types'
 import { ModalBackdrop, ModalHeader } from './Modal'
@@ -6,6 +6,12 @@ import { ModalBackdrop, ModalHeader } from './Modal'
 interface Props {
   application: Application
   onClose: () => void
+  /**
+   * Something here was saved onto the application. The page must reload, or
+   * other windows (Application prep) seed their editors from a stale copy and
+   * can write the old text back over what was just saved.
+   */
+  onChanged: () => void
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -37,8 +43,11 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-function CoverLetterSection({ applicationId }: { applicationId: string }) {
-  const [content, setContent] = useState<string | null>(null)
+function CoverLetterSection({ application, onChanged }: { application: Application; onChanged: () => void }) {
+  // Seeded from the application, not empty: the prep pipeline saves a cover
+  // letter there, and starting blank would offer to write a second one and
+  // then throw it away.
+  const [content, setContent] = useState<string | null>(application.coverLetterText)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -46,8 +55,18 @@ function CoverLetterSection({ applicationId }: { applicationId: string }) {
     setGenerating(true)
     setError(null)
     try {
-      const result = await api.generateCoverLetter(applicationId)
+      const result = await api.generateCoverLetter(application.id)
       setContent(result.content)
+      // Persist it the same place prep does, so both doors lead to one letter.
+      // Saving writes both documents, so read the tailored resume as it is
+      // *now* — the prop can predate edits saved in Application prep, and
+      // passing it through would quietly revert them.
+      const current = await api.getApplication(application.id)
+      await api.saveDocuments(application.id, {
+        tailoredResumeText: current.tailoredResumeText,
+        coverLetterText: result.content,
+      })
+      onChanged()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Something went wrong.')
     } finally {
@@ -90,11 +109,28 @@ function InterviewPrepSection({ applicationId }: { applicationId: string }) {
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Prep is stored once generated — show it rather than making the user pay
+  // for it again the morning of the interview.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const stored = await api.getInterviewPrep(applicationId)
+        if (!cancelled && stored) setPrep(stored)
+      } catch {
+        // Nothing stored yet is the common case; the Generate button covers it.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [applicationId])
+
   const generate = async () => {
     setGenerating(true)
     setError(null)
     try {
-      setPrep(await api.generateInterviewPrep(applicationId))
+      setPrep(await api.generateInterviewPrep(applicationId, prep !== null))
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Something went wrong.')
     } finally {
@@ -152,8 +188,18 @@ function InterviewPrepSection({ applicationId }: { applicationId: string }) {
   )
 }
 
-export function AiToolsModal({ application, onClose }: Props) {
-  const showInterviewPrep = application.status === 'Interview' || application.status === 'Offer'
+export function AiToolsModal({ application, onClose, onChanged }: Props) {
+  // A booked interview counts regardless of status: the agenda flags unprepped
+  // interviews, and this is where you act on that, so hiding it by status would
+  // leave that nudge with nowhere to go.
+  const hasUpcomingInterview = application.interviews.some(
+    (i) => new Date(i.scheduledAtUtc) >= new Date(),
+  )
+  const showInterviewPrep =
+    hasUpcomingInterview ||
+    application.status === 'PhoneScreen' ||
+    application.status === 'Interview' ||
+    application.status === 'Offer'
 
   return (
     <ModalBackdrop onClose={onClose}>
@@ -170,7 +216,7 @@ export function AiToolsModal({ application, onClose }: Props) {
         />
 
         <div className="max-h-[70vh] space-y-7 overflow-y-auto p-7">
-          <CoverLetterSection applicationId={application.id} />
+          <CoverLetterSection application={application} onChanged={onChanged} />
           {showInterviewPrep && <InterviewPrepSection applicationId={application.id} />}
         </div>
       </div>

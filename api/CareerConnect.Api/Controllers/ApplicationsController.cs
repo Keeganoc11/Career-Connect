@@ -315,21 +315,14 @@ public class ApplicationsController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<InterviewPrepResponse>> GenerateInterviewPrep(Guid id, CancellationToken cancellationToken)
+    public async Task<ActionResult<InterviewPrepResponse>> GenerateInterviewPrep(
+        Guid id, CancellationToken cancellationToken, [FromQuery] bool regenerate = false)
     {
-        var outcome = await interviewPrep.GenerateAsync(UserId, id, cancellationToken);
+        var outcome = await interviewPrep.GenerateAsync(UserId, id, regenerate, cancellationToken);
 
         return outcome switch
         {
-            InterviewPrepOutcome.Success success => Ok(new InterviewPrepResponse
-            {
-                Questions = success.Prep.Questions
-                    .Select(q => new InterviewQuestionResponse { Question = q.Question, WhyItMightComeUp = q.WhyItMightComeUp })
-                    .ToList(),
-                TalkingPoints = success.Prep.TalkingPoints
-                    .Select(t => new TalkingPointResponse { Point = t.Point, HowToUseIt = t.HowToUseIt })
-                    .ToList(),
-            }),
+            InterviewPrepOutcome.Success success => Ok(ToResponse(success.Prep)),
 
             InterviewPrepOutcome.Failed { Reason: InterviewPrepFailureReason.ApplicationNotFound } => NotFound(),
 
@@ -354,4 +347,24 @@ public class ApplicationsController(
             _ => StatusCode(StatusCodes.Status500InternalServerError),
         };
     }
+
+    /// <summary>The stored interview prep, if any. 204 when none has been generated — no model call either way.</summary>
+    [HttpGet("{id:guid}/interview-prep")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<ActionResult<InterviewPrepResponse>> GetInterviewPrep(Guid id, CancellationToken cancellationToken)
+    {
+        var prep = await interviewPrep.GetStoredAsync(UserId, id, cancellationToken);
+        return prep is null ? NoContent() : Ok(ToResponse(prep));
+    }
+
+    private static InterviewPrepResponse ToResponse(InterviewPrep prep) => new()
+    {
+        Questions = prep.Questions
+            .Select(q => new InterviewQuestionResponse { Question = q.Question, WhyItMightComeUp = q.WhyItMightComeUp })
+            .ToList(),
+        TalkingPoints = prep.TalkingPoints
+            .Select(t => new TalkingPointResponse { Point = t.Point, HowToUseIt = t.HowToUseIt })
+            .ToList(),
+    };
 }

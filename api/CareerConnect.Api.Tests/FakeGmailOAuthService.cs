@@ -1,5 +1,6 @@
 using CareerConnect.Api.Contracts;
 using CareerConnect.Api.Services;
+using Google.Apis.Calendar.v3;
 using Google.Apis.Gmail.v1;
 
 namespace CareerConnect.Api.Tests;
@@ -53,6 +54,10 @@ public sealed class FakeGmailOAuthService : IGmailOAuthService
     public Task<GmailService?> GetGmailServiceAsync(Guid userId, CancellationToken cancellationToken = default) =>
         throw new InvalidOperationException(
             "The scanner should go through IGmailMailReader, not call this directly.");
+
+    /// <summary>Null throughout — calendar behaviour is tested through IInterviewCalendarSync, not here.</summary>
+    public Task<CalendarService?> GetCalendarServiceAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<CalendarService?>(null);
 
     public Task<GmailScanResponse?> GetAndClearPendingSuggestionsAsync(Guid userId, CancellationToken cancellationToken = default)
     {

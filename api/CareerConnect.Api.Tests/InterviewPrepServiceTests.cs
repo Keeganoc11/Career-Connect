@@ -32,6 +32,79 @@ public sealed class InterviewPrepServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GenerateAsync_StoresThePrepSoItSurvivesClosingTheModal()
+    {
+        var application = _fixture.SeedApplication(_userId);
+        _fixture.SeedResume(_userId);
+
+        await _service.GenerateAsync(_userId, application.Id);
+
+        var stored = await _service.GetStoredAsync(_userId, application.Id);
+        Assert.NotNull(stored);
+        Assert.Single(stored.Questions);
+        Assert.NotNull(_fixture.Db.Applications.Single().InterviewPrepGeneratedAtUtc);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_ServesTheStoredCopyInsteadOfPayingForItTwice()
+    {
+        var application = _fixture.SeedApplication(_userId);
+        _fixture.SeedResume(_userId);
+
+        await _service.GenerateAsync(_userId, application.Id);
+        var outcome = await _service.GenerateAsync(_userId, application.Id);
+
+        Assert.IsType<InterviewPrepOutcome.Success>(outcome);
+        Assert.Equal(1, _generator.CallCount);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_RunsAgainWhenTheCallerAsksForAFreshPass()
+    {
+        var application = _fixture.SeedApplication(_userId);
+        _fixture.SeedResume(_userId);
+
+        await _service.GenerateAsync(_userId, application.Id);
+        await _service.GenerateAsync(_userId, application.Id, regenerate: true);
+
+        Assert.Equal(2, _generator.CallCount);
+    }
+
+    [Fact]
+    public async Task GetStoredAsync_ReturnsNothingBeforeAnyPrepHasBeenGenerated()
+    {
+        var application = _fixture.SeedApplication(_userId);
+
+        Assert.Null(await _service.GetStoredAsync(_userId, application.Id));
+        Assert.Equal(0, _generator.CallCount);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_RegeneratesRatherThanFailing_WhenTheStoredPrepIsUnreadable()
+    {
+        var application = _fixture.SeedApplication(_userId);
+        _fixture.SeedResume(_userId);
+        application.InterviewPrepJson = "{ this is not json";
+        _fixture.Db.SaveChanges();
+
+        var outcome = await _service.GenerateAsync(_userId, application.Id);
+
+        Assert.IsType<InterviewPrepOutcome.Success>(outcome);
+        Assert.Equal(1, _generator.CallCount);
+    }
+
+    [Fact]
+    public async Task GetStoredAsync_HidesPrepBelongingToSomeoneElse()
+    {
+        var otherUserId = _fixture.SeedUser("someone-else@example.com");
+        var application = _fixture.SeedApplication(otherUserId);
+        _fixture.SeedResume(otherUserId);
+        await _service.GenerateAsync(otherUserId, application.Id);
+
+        Assert.Null(await _service.GetStoredAsync(_userId, application.Id));
+    }
+
+    [Fact]
     public async Task GenerateAsync_FailsWithoutJobDescription()
     {
         var application = _fixture.SeedApplication(_userId, jobDescription: null);

@@ -17,6 +17,7 @@ public sealed class ApplicationServiceTests : IDisposable
     private readonly SqliteConnection _connection;
     private readonly AppDbContext _db;
     private readonly ApplicationService _service;
+    private readonly FakeInterviewCalendarSync _calendar = new();
     private readonly Guid _userId;
     private readonly Guid _otherUserId;
 
@@ -33,7 +34,7 @@ public sealed class ApplicationServiceTests : IDisposable
 
         _userId = SeedUser("me@example.com");
         _otherUserId = SeedUser("someone-else@example.com");
-        _service = new ApplicationService(_db);
+        _service = new ApplicationService(_db, _calendar);
     }
 
     public void Dispose()
@@ -75,7 +76,7 @@ public sealed class ApplicationServiceTests : IDisposable
         var entry = Assert.Single(history);
         Assert.Null(entry.FromStatus);
         Assert.Equal(ApplicationStatus.Applied, entry.ToStatus);
-        Assert.Equal(StatusChangeSource.Manual, entry.Source);
+        Assert.Equal(ChangeSource.Manual, entry.Source);
     }
 
     [Fact]
@@ -164,6 +165,47 @@ public sealed class ApplicationServiceTests : IDisposable
         Assert.True(deleted);
         Assert.Empty(await _db.Applications.ToListAsync());
         Assert.Empty(await _db.StatusChanges.ToListAsync());
+    }
+
+    private void SeedInterview(Guid applicationId, string? calendarEventId, int daysOut = 10)
+    {
+        _db.InterviewEvents.Add(new InterviewEvent
+        {
+            Id = Guid.NewGuid(),
+            ApplicationId = applicationId,
+            ScheduledAtUtc = new DateTime(2026, 9, 1, 14, 0, 0, DateTimeKind.Utc).AddDays(daysOut),
+            Kind = InterviewKind.PhoneScreen,
+            Source = ChangeSource.Manual,
+            CalendarEventId = calendarEventId,
+            CreatedAtUtc = DateTime.UtcNow,
+        });
+        _db.SaveChanges();
+    }
+
+    [Fact]
+    public async Task DeleteAsync_RemovesTheCalendarCopiesOfItsInterviews()
+    {
+        var created = await _service.CreateAsync(_userId, NewRequest());
+        SeedInterview(created.Id, calendarEventId: "cal-screen");
+        // Scheduled while calendar sync was off, so there's no copy to remove.
+        SeedInterview(created.Id, calendarEventId: null, daysOut: 17);
+
+        var deleted = await _service.DeleteAsync(_userId, created.Id);
+
+        Assert.True(deleted);
+        Assert.Equal(["cal-screen"], _calendar.DeletedEventIds);
+        Assert.Empty(await _db.InterviewEvents.ToListAsync());
+    }
+
+    [Fact]
+    public async Task DeleteAsync_LeavesAnotherUsersCalendarAlone()
+    {
+        var theirs = await _service.CreateAsync(_otherUserId, NewRequest());
+        SeedInterview(theirs.Id, calendarEventId: "cal-theirs");
+
+        Assert.False(await _service.DeleteAsync(_userId, theirs.Id));
+        Assert.Empty(_calendar.DeletedEventIds);
+        Assert.Single(await _db.InterviewEvents.ToListAsync());
     }
 
     [Fact]

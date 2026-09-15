@@ -1,14 +1,22 @@
 import { useState } from 'react'
-import type { AutoApplied, SuggestedNewApplication, SuggestedStatusUpdate } from '../api/types'
+import type {
+  AutoApplied,
+  InterviewKind,
+  SuggestedNewApplication,
+  SuggestedStatusUpdate,
+} from '../api/types'
 import { STATUS_META } from '../lib/status'
-import { formatRelative } from '../lib/format'
+import { formatRelative, fromDateTimeLocalValue, toDateTimeLocalValue } from '../lib/format'
 import { ModalBackdrop, ModalHeader } from './Modal'
 
 interface Props {
   statusUpdates: SuggestedStatusUpdate[]
   newApplications: SuggestedNewApplication[]
   autoApplied: AutoApplied[]
-  onAcceptStatusUpdate: (suggestion: SuggestedStatusUpdate) => Promise<void>
+  onAcceptStatusUpdate: (
+    suggestion: SuggestedStatusUpdate,
+    interview?: { interviewAtUtc: string; interviewKind: InterviewKind },
+  ) => Promise<void>
   onDismissStatusUpdate: (suggestion: SuggestedStatusUpdate) => void
   onAddNewApplication: (suggestion: SuggestedNewApplication) => void
   onDismissNewApplication: (suggestion: SuggestedNewApplication) => void
@@ -43,15 +51,30 @@ function StatusUpdateRow({
   onDismiss,
 }: {
   suggestion: SuggestedStatusUpdate
-  onAccept: () => Promise<void>
+  onAccept: (interview?: { interviewAtUtc: string; interviewKind: InterviewKind }) => Promise<void>
   onDismiss: () => void
 }) {
   const [applying, setApplying] = useState(false)
 
+  // Editable, and defaulted on: the model read this time out of an email, and
+  // a misread one books the wrong appointment. Correcting it here is cheaper
+  // than fixing it on a calendar afterwards.
+  const [scheduleIt, setScheduleIt] = useState(Boolean(suggestion.interviewAtUtc))
+  const [slot, setSlot] = useState(() =>
+    suggestion.interviewAtUtc ? toDateTimeLocalValue(suggestion.interviewAtUtc) : '',
+  )
+
   const accept = async () => {
     setApplying(true)
     try {
-      await onAccept()
+      await onAccept(
+        scheduleIt && slot
+          ? {
+              interviewAtUtc: fromDateTimeLocalValue(slot),
+              interviewKind: suggestion.interviewKind ?? 'Other',
+            }
+          : undefined,
+      )
     } finally {
       setApplying(false)
     }
@@ -81,6 +104,30 @@ function StatusUpdateRow({
         receivedAtUtc={suggestion.emailReceivedAtUtc}
       />
 
+      {suggestion.interviewAtUtc && (
+        <div className="mt-3 rounded-xl border border-fuchsia-200 bg-fuchsia-50/60 p-3">
+          <label className="flex items-center gap-2 text-sm font-bold text-fuchsia-900">
+            <input
+              type="checkbox"
+              checked={scheduleIt}
+              onChange={(event) => setScheduleIt(event.target.checked)}
+              className="size-4 accent-fuchsia-600"
+            />
+            📅 Also schedule this interview
+          </label>
+          <p className="mt-1 text-xs text-fuchsia-800">
+            Read out of the email — check the time before accepting.
+          </p>
+          <input
+            type="datetime-local"
+            value={slot}
+            disabled={!scheduleIt}
+            onChange={(event) => setSlot(event.target.value)}
+            className="mt-2 w-full rounded-lg border border-fuchsia-300 bg-white px-3 py-1.5 text-sm text-slate-900 disabled:opacity-50"
+          />
+        </div>
+      )}
+
       <div className="mt-3 flex justify-end gap-2">
         <button
           type="button"
@@ -96,7 +143,11 @@ function StatusUpdateRow({
           disabled={applying}
           className="brand-gradient rounded-lg px-4 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-60"
         >
-          {applying ? 'Applying…' : `Mark as ${STATUS_META[suggestion.suggestedStatus].label}`}
+          {applying
+            ? 'Applying…'
+            : scheduleIt && slot
+              ? `Mark as ${STATUS_META[suggestion.suggestedStatus].label} & schedule`
+              : `Mark as ${STATUS_META[suggestion.suggestedStatus].label}`}
         </button>
       </div>
     </div>
@@ -258,7 +309,7 @@ export function GmailSuggestionsModal({
                       <StatusUpdateRow
                         key={`${suggestion.applicationId}-${suggestion.emailSubject}`}
                         suggestion={suggestion}
-                        onAccept={() => onAcceptStatusUpdate(suggestion)}
+                        onAccept={(interview) => onAcceptStatusUpdate(suggestion, interview)}
                         onDismiss={() => onDismissStatusUpdate(suggestion)}
                       />
                     ))}
