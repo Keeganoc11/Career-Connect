@@ -40,6 +40,19 @@ public class AcceptSuggestionRequest
     public InterviewKind? InterviewKind { get; init; }
 }
 
+/// <summary>A suggested status change is identified by its application and the status it suggests.</summary>
+public class DismissStatusUpdateRequest
+{
+    public required Guid ApplicationId { get; init; }
+    public required ApplicationStatus SuggestedStatus { get; init; }
+}
+
+/// <summary>A suggested new application is identified by its company.</summary>
+public class DismissNewApplicationRequest
+{
+    public required string CompanyName { get; init; }
+}
+
 public class SuggestedStatusUpdateResponse
 {
     public required Guid ApplicationId { get; init; }

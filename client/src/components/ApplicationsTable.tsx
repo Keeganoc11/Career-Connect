@@ -59,23 +59,30 @@ export function ApplicationsTable({
   const [sortAsc, setSortAsc] = useState(false)
 
   const sorted = useMemo(() => {
+    const direction = sortAsc ? 1 : -1
     const compare = (a: Application, b: Application): number => {
       switch (sortKey) {
         case 'companyName':
-          return a.companyName.localeCompare(b.companyName)
+          return a.companyName.localeCompare(b.companyName) * direction
         case 'status':
-          return STATUS_ORDER[a.status] - STATUS_ORDER[b.status]
+          return (STATUS_ORDER[a.status] - STATUS_ORDER[b.status]) * direction
         case 'dateApplied':
-          return a.dateApplied.localeCompare(b.dateApplied)
+          return a.dateApplied.localeCompare(b.dateApplied) * direction
         case 'updatedAtUtc':
-          return a.updatedAtUtc.localeCompare(b.updatedAtUtc)
-        case 'matchScore':
-          // Unscored rows sort below every scored one in either direction.
-          return (matches[a.id]?.score ?? -1) - (matches[b.id]?.score ?? -1)
+          return a.updatedAtUtc.localeCompare(b.updatedAtUtc) * direction
+        case 'matchScore': {
+          // Unscored rows sort below every scored one in either direction, so
+          // the direction only applies when both rows have a score. Reversing
+          // the whole list afterwards used to float them to the top.
+          const scoreA = matches[a.id]?.score
+          const scoreB = matches[b.id]?.score
+          if (scoreA === undefined) return scoreB === undefined ? 0 : 1
+          if (scoreB === undefined) return -1
+          return (scoreA - scoreB) * direction
+        }
       }
     }
-    const list = [...applications].sort(compare)
-    return sortAsc ? list : list.reverse()
+    return [...applications].sort(compare)
   }, [applications, matches, sortKey, sortAsc])
 
   const toggleSort = (key: SortKey) => {

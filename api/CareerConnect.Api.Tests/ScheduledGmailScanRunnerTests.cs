@@ -14,7 +14,10 @@ public sealed class ScheduledGmailScanRunnerTests : IDisposable
     public ScheduledGmailScanRunnerTests()
     {
         _runner = new ScheduledGmailScanRunner(
-            _fixture.Db, _scanner, NullLogger<ScheduledGmailScanRunner>.Instance);
+            _fixture.Db,
+            _scanner,
+            new GmailPendingUpdates(_fixture.Db, NullLogger<GmailPendingUpdates>.Instance),
+            NullLogger<ScheduledGmailScanRunner>.Instance);
     }
 
     public void Dispose() => _fixture.Dispose();
@@ -105,8 +108,10 @@ public sealed class ScheduledGmailScanRunnerTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAllAsync_OverwritesPreviousPendingResult()
+    public async Task RunAllAsync_KeepsUnreviewedUpdatesFromEarlierScans()
     {
+        // This used to be overwritten. The earlier scan's watermark had already
+        // moved past "Old", so replacing it lost that update for good.
         var userId = _fixture.SeedUser("me@example.com");
         var connection = SeedConnection(userId);
         connection.PendingScanResultJson = """{"statusUpdates":[],"newApplications":[{"companyName":"Old","roleTitle":"x","reasoning":"x","emailSubject":"x","emailFrom":"x","emailReceivedAtUtc":"2026-01-01T00:00:00Z"}]}""";
@@ -129,6 +134,6 @@ public sealed class ScheduledGmailScanRunnerTests : IDisposable
 
         var updated = await _fixture.Db.GmailConnections.AsNoTracking().FirstAsync(g => g.UserId == userId);
         Assert.Contains("New", updated.PendingScanResultJson);
-        Assert.DoesNotContain("Old", updated.PendingScanResultJson);
+        Assert.Contains("Old", updated.PendingScanResultJson);
     }
 }

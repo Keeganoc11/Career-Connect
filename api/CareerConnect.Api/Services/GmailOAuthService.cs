@@ -1,5 +1,3 @@
-using System.Text.Json;
-using CareerConnect.Api.Contracts;
 using CareerConnect.Api.Data;
 using CareerConnect.Api.Domain;
 using Google.Apis.Auth.OAuth2;
@@ -188,22 +186,6 @@ public class GmailOAuthService : IGmailOAuthService
 
         connection.LastCheckedAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
-    }
-
-    public async Task<GmailScanResponse?> GetAndClearPendingSuggestionsAsync(
-        Guid userId, CancellationToken cancellationToken = default)
-    {
-        var connection = await _db.GmailConnections.FirstOrDefaultAsync(g => g.UserId == userId, cancellationToken);
-        if (connection?.PendingScanResultJson is null)
-        {
-            return null;
-        }
-
-        var result = JsonSerializer.Deserialize<GmailScanResponse>(connection.PendingScanResultJson);
-        connection.PendingScanResultJson = null;
-        connection.PendingScanCompletedAtUtc = null;
-        await _db.SaveChangesAsync(cancellationToken);
-        return result;
     }
 
     public async Task<GmailService?> GetGmailServiceAsync(Guid userId, CancellationToken cancellationToken = default)

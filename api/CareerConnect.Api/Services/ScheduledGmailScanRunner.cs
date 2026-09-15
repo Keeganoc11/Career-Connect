@@ -1,4 +1,3 @@
-using System.Text.Json;
 using CareerConnect.Api.Contracts;
 using CareerConnect.Api.Data;
 using Microsoft.EntityFrameworkCore;
@@ -8,8 +7,8 @@ namespace CareerConnect.Api.Services;
 public interface IScheduledGmailScanRunner
 {
     /// <summary>
-    /// Runs a scan for every connected Gmail user and stores any findings for
-    /// later review (see GmailConnection.PendingScanResultJson). Never
+    /// Runs a scan for every connected Gmail user and adds any findings to
+    /// their pending updates (see <see cref="IGmailPendingUpdates"/>). Never
     /// applies anything itself, same as a manual scan — per-connection
     /// failures are logged and skipped rather than aborting the whole run.
     /// </summary>
@@ -19,6 +18,7 @@ public interface IScheduledGmailScanRunner
 public class ScheduledGmailScanRunner(
     AppDbContext db,
     IGmailUpdateScanner scanner,
+    IGmailPendingUpdates pendingUpdates,
     ILogger<ScheduledGmailScanRunner> logger) : IScheduledGmailScanRunner
 {
     public async Task RunAllAsync(CancellationToken cancellationToken = default)
@@ -51,29 +51,14 @@ public class ScheduledGmailScanRunner(
             return;
         }
 
-        if (success.StatusUpdates.Count == 0 && success.NewApplications.Count == 0 && success.AutoApplied.Count == 0)
-        {
-            return;
-        }
-
-        var connection = await db.GmailConnections.FirstOrDefaultAsync(g => g.UserId == userId, cancellationToken);
-        if (connection is null)
-        {
-            return; // Disconnected between the scan starting and finishing.
-        }
-
-        var response = new GmailScanResponse
+        // Merged, never overwritten: the scan just moved its watermark past
+        // these emails, so anything an earlier cycle found that the user hasn't
+        // handled yet would otherwise be gone for good.
+        await pendingUpdates.AddAsync(userId, new GmailScanResponse
         {
             StatusUpdates = success.StatusUpdates,
             NewApplications = success.NewApplications,
             AutoApplied = success.AutoApplied,
-        };
-
-        // Overwrites any previous pending result rather than merging — the
-        // scan that just ran already covers everything since the watermark,
-        // so it supersedes whatever an earlier cycle found.
-        connection.PendingScanResultJson = JsonSerializer.Serialize(response);
-        connection.PendingScanCompletedAtUtc = DateTime.UtcNow;
-        await db.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
     }
 }

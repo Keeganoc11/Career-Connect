@@ -233,16 +233,31 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
   }
 
+  // Updates now stay on the server until they're dismissed, so hide one right
+  // away but put it back if the server didn't take the dismissal — otherwise
+  // it would quietly reappear on the next load with no sign anything failed.
   const dismissGmailStatusUpdate = (suggestion: SuggestedStatusUpdate) => {
     setGmailScanResult((current) =>
       current && { ...current, statusUpdates: current.statusUpdates.filter((s) => s !== suggestion) },
     )
+    void api.dismissGmailStatusUpdate(suggestion.applicationId, suggestion.suggestedStatus).catch((e: unknown) => {
+      setGmailScanResult((current) =>
+        current && { ...current, statusUpdates: [...current.statusUpdates, suggestion] },
+      )
+      handleError(e)
+    })
   }
 
   const dismissGmailNewApplication = (suggestion: SuggestedNewApplication) => {
     setGmailScanResult((current) =>
       current && { ...current, newApplications: current.newApplications.filter((s) => s !== suggestion) },
     )
+    void api.dismissGmailNewApplication(suggestion.companyName).catch((e: unknown) => {
+      setGmailScanResult((current) =>
+        current && { ...current, newApplications: [...current.newApplications, suggestion] },
+      )
+      handleError(e)
+    })
   }
 
   const reviewNewApplicationFromGmail = (suggestion: SuggestedNewApplication) => {
@@ -365,6 +380,9 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
         current && { ...current, newApplications: current.newApplications.filter((s) => s !== consumed) },
       )
       setReviewingGmailSuggestion(null)
+      // Clear the saved copy too. Failing quietly is fine here: reading the
+      // updates also drops any company that's now tracked.
+      void api.dismissGmailNewApplication(consumed.companyName).catch(() => {})
     }
     setFormTarget(null)
     setFormPrefill(undefined)

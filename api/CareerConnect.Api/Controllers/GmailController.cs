@@ -11,6 +11,7 @@ namespace CareerConnect.Api.Controllers;
 public class GmailController(
     IGmailOAuthService oauth,
     IGmailUpdateScanner scanner,
+    IGmailPendingUpdates pendingUpdates,
     IApplicationService applications,
     IInterviewService interviews,
     IDataProtectionProvider dataProtectionProvider,
@@ -125,15 +126,41 @@ public class GmailController(
             });
     }
 
-    /// <summary>Returns whatever the last scheduled background scan found, then clears it — single-consumption, like a notification you've now seen.</summary>
+    /// <summary>
+    /// Everything scans have found that's still waiting for review. Reading
+    /// doesn't clear it — an update stays until it's accepted or dismissed.
+    /// </summary>
     [HttpGet("pending-suggestions")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<ActionResult<GmailScanResponse>> PendingSuggestions()
+    public async Task<ActionResult<GmailScanResponse>> PendingSuggestions(CancellationToken cancellationToken)
     {
-        var result = await oauth.GetAndClearPendingSuggestionsAsync(UserId);
+        var result = await pendingUpdates.ReadAsync(UserId, cancellationToken);
         return result is null ? NoContent() : Ok(result);
+    }
+
+    /// <summary>Hides a suggested status change without applying it.</summary>
+    [HttpPost("pending-suggestions/status-updates/dismiss")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> DismissStatusUpdate(
+        DismissStatusUpdateRequest request, CancellationToken cancellationToken)
+    {
+        await pendingUpdates.RemoveStatusUpdateAsync(
+            UserId, request.ApplicationId, request.SuggestedStatus, cancellationToken);
+        return NoContent();
+    }
+
+    /// <summary>Hides a suggested new application without adding it.</summary>
+    [HttpPost("pending-suggestions/new-applications/dismiss")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> DismissNewApplication(
+        DismissNewApplicationRequest request, CancellationToken cancellationToken)
+    {
+        await pendingUpdates.RemoveNewApplicationAsync(UserId, request.CompanyName, cancellationToken);
+        return NoContent();
     }
 
     /// <summary>Applies a status change the user accepted from a scan, recording that email is where it came from.</summary>
@@ -150,6 +177,8 @@ public class GmailController(
         {
             return NotFound();
         }
+
+        await pendingUpdates.RemoveStatusUpdateAsync(UserId, request.ApplicationId, request.Status);
 
         // One review, both outcomes: the user confirmed what the email means,
         // so the time it named goes on the calendar in the same action.
@@ -178,7 +207,11 @@ public class GmailController(
         return NoContent();
     }
 
-    /// <summary>Runs a scan and returns suggested status changes and new applications. Applies nothing itself.</summary>
+    /// <summary>
+    /// Runs a scan and returns everything waiting for review — this scan's
+    /// findings plus any earlier ones still unhandled. Applies nothing itself
+    /// beyond the one automatic Preparing → Applied confirmation.
+    /// </summary>
     [HttpPost("scan")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -187,20 +220,31 @@ public class GmailController(
     {
         var outcome = await scanner.ScanAsync(UserId, cancellationToken);
 
-        return outcome switch
+        if (outcome is GmailScanOutcome.Failed failed)
         {
-            GmailScanOutcome.Success success => Ok(new GmailScanResponse
-            {
-                StatusUpdates = success.StatusUpdates,
-                NewApplications = success.NewApplications,
-                AutoApplied = success.AutoApplied,
-            }),
-            GmailScanOutcome.Failed failed => Conflict(new ProblemDetails
+            return Conflict(new ProblemDetails
             {
                 Title = failed.Message,
                 Status = StatusCodes.Status409Conflict,
-            }),
-            _ => StatusCode(StatusCodes.Status500InternalServerError),
-        };
+            });
+        }
+
+        if (outcome is not GmailScanOutcome.Success success)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError);
+        }
+
+        // Findings go where a scheduled scan's do, so closing the window before
+        // handling them doesn't lose them: the watermark has already moved past
+        // these emails, and no later scan will find them again.
+        await pendingUpdates.AddAsync(UserId, new GmailScanResponse
+        {
+            StatusUpdates = success.StatusUpdates,
+            NewApplications = success.NewApplications,
+            AutoApplied = success.AutoApplied,
+        }, cancellationToken);
+
+        var waiting = await pendingUpdates.ReadAsync(UserId, cancellationToken);
+        return Ok(waiting ?? new GmailScanResponse { StatusUpdates = [], NewApplications = [], AutoApplied = [] });
     }
 }

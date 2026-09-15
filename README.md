@@ -102,6 +102,9 @@ client/                     React + TypeScript + Tailwind
 | GET | `/api/applications/prep-runs` | Latest prep run per application, for the list view |
 | PUT | `/api/applications/{id}/documents` | Saves edits to the tailored resume / cover letter |
 | POST | `/api/gmail/suggestions/accept` | Applies a scan suggestion, stamping `EmailSuggestion` provenance; schedules the interview too when the email named a time |
+| GET | `/api/gmail/pending-suggestions` | Updates waiting for review — reading doesn't clear them |
+| POST | `/api/gmail/pending-suggestions/status-updates/dismiss` | Dismisses a suggested status change |
+| POST | `/api/gmail/pending-suggestions/new-applications/dismiss` | Dismisses a suggested new application |
 | GET | `/api/agenda` | Upcoming interviews and applications that have gone quiet |
 | GET/POST | `/api/applications/{id}/interviews` | List / schedule interviews |
 | PUT/DELETE | `/api/interviews/{id}` | Reschedule or cancel — the calendar copy follows |
@@ -189,7 +192,7 @@ dotnet user-secrets set "Gmail:ClientSecret" "YOUR_CLIENT_SECRET"
 
 Without these, everything else runs normally and Gmail endpoints return a 503 explaining what's missing.
 
-Once connected, Gmail is scanned automatically in the background (not just when you click "Check for updates") — once a day by default. Override with `Gmail:ScanIntervalHours` (set to `0` to disable). Findings are stored and surfaced the next time you open the app, same review-before-accept flow as a manual scan.
+Once connected, Gmail is scanned automatically in the background (not just when you click "Check for updates") — once a day by default. Override with `Gmail:ScanIntervalHours` (set to `0` to disable). Findings from scheduled and manual scans land in the same place and stay there until you accept or dismiss each one — closing the review window never loses an update. That matters because each scan only looks at mail since the last one, so an email is only ever found once.
 
 **What actually gets read.** A scan sends Claude only each candidate email's subject, sender, and the short Gmail snippet — never full bodies. The one exception is interview detection: an email the first pass has already identified as an interview invitation gets opened and its body sent, because the scheduled time appears there and nowhere else. That's a handful of messages per scan, not everything the search matched. The OAuth scope is unchanged (`gmail.readonly` always permitted this), and nothing is persisted beyond the scan that requested it.
 

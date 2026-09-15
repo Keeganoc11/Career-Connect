@@ -1,4 +1,3 @@
-using CareerConnect.Api.Contracts;
 using CareerConnect.Api.Services;
 using Google.Apis.Calendar.v3;
 using Google.Apis.Gmail.v1;
@@ -17,8 +16,6 @@ public sealed class FakeGmailOAuthService : IGmailOAuthService
     /// <summary>Null simulates "not connected".</summary>
     public GmailConnectionInfo? Connection { get; set; } =
         new("me@example.com", DateTime.UtcNow.AddDays(-10), LastCheckedAtUtc: null, HasPendingSuggestions: false);
-
-    public GmailScanResponse? PendingSuggestions { get; set; }
 
     public int MarkCheckedCallCount { get; private set; }
 
@@ -57,12 +54,4 @@ public sealed class FakeGmailOAuthService : IGmailOAuthService
 
     /// <summary>Null throughout — calendar behaviour is tested through IInterviewCalendarSync, not here.</summary>
     public Task<CalendarService?> GetCalendarServiceAsync(Guid userId, CancellationToken cancellationToken = default) =>
-        Task.FromResult<CalendarService?>(null);
-
-    public Task<GmailScanResponse?> GetAndClearPendingSuggestionsAsync(Guid userId, CancellationToken cancellationToken = default)
-    {
-        var result = PendingSuggestions;
-        PendingSuggestions = null;
-        return Task.FromResult(result);
-    }
-}
+        Task.FromResult<CalendarService?>(null);}

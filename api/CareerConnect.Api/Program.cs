@@ -70,6 +70,7 @@ if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
 builder.Services.AddScoped<IGmailOAuthService, GmailOAuthService>();
 builder.Services.AddScoped<IGmailMailReader, GmailMailReader>();
 builder.Services.AddScoped<IGmailUpdateScanner, GmailUpdateScanner>();
+builder.Services.AddScoped<IGmailPendingUpdates, GmailPendingUpdates>();
 builder.Services.AddSingleton<IEmailStatusClassifier, ClaudeEmailStatusClassifier>();
 builder.Services.AddSingleton<IInterviewDetailsExtractor, ClaudeInterviewDetailsExtractor>();
 

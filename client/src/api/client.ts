@@ -360,6 +360,22 @@ export const api = {
     })
   },
 
+  /** Hides a suggested status change for good. Closing the window without deciding keeps it. */
+  dismissGmailStatusUpdate(applicationId: string, suggestedStatus: ApplicationStatus) {
+    return request<void>('/api/gmail/pending-suggestions/status-updates/dismiss', {
+      method: 'POST',
+      body: JSON.stringify({ applicationId, suggestedStatus }),
+    })
+  },
+
+  /** Hides a suggested new application for good. Closing the window without deciding keeps it. */
+  dismissGmailNewApplication(companyName: string) {
+    return request<void>('/api/gmail/pending-suggestions/new-applications/dismiss', {
+      method: 'POST',
+      body: JSON.stringify({ companyName }),
+    })
+  },
+
   /** Whatever the last scheduled background scan found, if anything — undefined if nothing's pending. */
   getPendingGmailSuggestions() {
     return request<GmailScanResult | undefined>('/api/gmail/pending-suggestions')
