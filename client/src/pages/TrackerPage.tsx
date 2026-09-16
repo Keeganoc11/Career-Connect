@@ -8,20 +8,31 @@ import type {
   MatchResult,
   PrepRun,
   ResumeSummary,
-  Summary,
   TailorResumeInput,
 } from '../api/types'
-import { SummaryBar } from '../components/SummaryBar'
 import { ApplicationsTable } from '../components/ApplicationsTable'
+import { ApplicationsList } from '../components/ApplicationsList'
+import { StatusFilter } from '../components/StatusFilter'
 import { ApplicationFormModal } from '../components/ApplicationFormModal'
 import { MatchDetailModal } from '../components/MatchDetailModal'
 import { PrepModal } from '../components/PrepModal'
 import { CoverLetterModal } from '../components/CoverLetterModal'
 import { InterviewPrepModal } from '../components/InterviewPrepModal'
 import { InterviewsModal } from '../components/InterviewsModal'
-import { ConfirmDialog, toast } from '../components/ui'
+import {
+  Banner,
+  Button,
+  ConfirmDialog,
+  EmptyState,
+  Field,
+  Input,
+  LoadingState,
+  PageHeader,
+  toast,
+} from '../components/ui'
 import { errorMessage } from '../lib/errors'
 import { useAsyncAction } from '../lib/useAsyncAction'
+import { sortApplications, type SortKey } from '../lib/sortApplications'
 import type { TrackerIntent } from '../lib/trackerIntent'
 
 interface Props {
@@ -44,7 +55,6 @@ export function TrackerPage({
   gmailStatus,
 }: Props) {
   const [applications, setApplications] = useState<Application[]>([])
-  const [summary, setSummary] = useState<Summary | null>(null)
   const [matches, setMatches] = useState<Record<string, MatchResult>>({})
   const [prepRuns, setPrepRuns] = useState<Record<string, PrepRun>>({})
   const [loading, setLoading] = useState(true)
@@ -52,9 +62,11 @@ export function TrackerPage({
 
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | null>(null)
   const [search, setSearch] = useState('')
+  const [sortKey, setSortKey] = useState<SortKey>('dateApplied')
+  const [sortAsc, setSortAsc] = useState(false)
+
   const [busyId, setBusyId] = useState<string | null>(null)
   const [scoringId, setScoringId] = useState<string | null>(null)
-  const [scoreError, setScoreError] = useState<string | null>(null)
   const [matchTarget, setMatchTarget] = useState<Application | null>(null)
   const [prepTarget, setPrepTarget] = useState<{ application: Application; autoStart: boolean } | null>(null)
   const [coverLetterTarget, setCoverLetterTarget] = useState<Application | null>(null)
@@ -77,15 +89,16 @@ export function TrackerPage({
 
   const refresh = useCallback(async () => {
     try {
-      const [list, counts, latestMatches, latestPrepRuns, resumeList] = await Promise.all([
+      // No getSummary: the status counts are computed from this list, so they
+      // can't disagree with the rows, and there's no second request popping the
+      // layout after the page has drawn.
+      const [list, latestMatches, latestPrepRuns, resumeList] = await Promise.all([
         api.listApplications(),
-        api.getSummary(),
         api.listMatches(),
         api.listPrepRuns(),
         api.listResumes(),
       ])
       setApplications(list)
-      setSummary(counts)
       setMatches(latestMatches)
       setPrepRuns(latestPrepRuns)
       setResumes(resumeList)
@@ -102,9 +115,9 @@ export function TrackerPage({
   }, [refresh, dataVersion])
 
   /**
-   * Something elsewhere asked for a dialog — the header's Email updates, or
-   * later the agenda. Resolved against the loaded list, so an intent that
-   * arrives before the data does waits for it rather than being dropped.
+   * Something elsewhere asked for a dialog — the header's Email updates, or the
+   * agenda. Resolved against the loaded list, so an intent arriving before the
+   * data does waits for it rather than being dropped.
    */
   useEffect(() => {
     if (!intent) return
@@ -144,9 +157,9 @@ export function TrackerPage({
     onIntentHandled()
   }, [intent, applications, matches, onIntentHandled])
 
-  // A prep pass keeps running server-side after its modal is closed, so the
-  // table polls for itself — otherwise a row would sit on "Prepping…" until
-  // the next full page load.
+  // A prep pass keeps running server-side after its dialog is closed, so the
+  // list polls for itself — otherwise a row would sit on "Prepping…" until the
+  // next full page load.
   const hasRunningPrep = Object.values(prepRuns).some((run) => run.status === 'Running')
   useEffect(() => {
     if (!hasRunningPrep) return
@@ -175,14 +188,33 @@ export function TrackerPage({
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return applications.filter(
+    const filtered = applications.filter(
       (a) =>
         (statusFilter === null || a.status === statusFilter) &&
         (query === '' ||
           a.companyName.toLowerCase().includes(query) ||
           a.roleTitle.toLowerCase().includes(query)),
     )
-  }, [applications, statusFilter, search])
+    // Sorted once here, so the table and the phone list are never in different
+    // orders.
+    return sortApplications(filtered, matches, sortKey, sortAsc)
+  }, [applications, statusFilter, search, matches, sortKey, sortAsc])
+
+  const filtered = statusFilter !== null || search.trim() !== ''
+
+  const clearFilters = () => {
+    setStatusFilter(null)
+    setSearch('')
+  }
+
+  const sort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortAsc((v) => !v)
+    } else {
+      setSortKey(key)
+      setSortAsc(key === 'companyName' || key === 'status')
+    }
+  }
 
   const changeStatus = async (id: string, status: ApplicationStatus): Promise<boolean> => {
     setBusyId(id)
@@ -191,7 +223,7 @@ export function TrackerPage({
       await refresh()
       return true
     } catch (e) {
-      handleError(e)
+      toast.error(errorMessage(e) ?? 'Could not update that status.')
       return false
     } finally {
       setBusyId(null)
@@ -200,7 +232,6 @@ export function TrackerPage({
 
   const score = async (application: Application) => {
     setScoringId(application.id)
-    setScoreError(null)
     try {
       const result = await api.scoreMatch(application.id)
       setMatches((current) => ({ ...current, [application.id]: result }))
@@ -208,7 +239,9 @@ export function TrackerPage({
       // "so what should I change?", which is the point of running it.
       setMatchTarget(application)
     } catch (e) {
-      setScoreError(errorMessage(e))
+      // A toast, not a standing amber banner above the table: scoring one row
+      // failing isn't a state the whole page needs to sit in.
+      toast.error(errorMessage(e) ?? 'Scoring failed.')
     } finally {
       setScoringId(null)
     }
@@ -261,7 +294,7 @@ export function TrackerPage({
 
     // The whole point of capturing a posting is to prep against it, so a new
     // one with a description goes straight into the pipeline rather than
-    // waiting to be found and clicked in the table.
+    // waiting to be found and clicked in the list.
     if (created && created.jobDescriptionText && created.status === 'Preparing') {
       setPrepTarget({ application: created, autoStart: true })
     }
@@ -272,10 +305,6 @@ export function TrackerPage({
   const recordPrepRun = useCallback((run: PrepRun) => {
     setPrepRuns((current) => ({ ...current, [run.applicationId]: run }))
   }, [])
-
-  const openPrep = (application: Application) => {
-    setPrepTarget({ application, autoStart: false })
-  }
 
   const markApplied = async () => {
     if (!prepTarget) return
@@ -304,129 +333,127 @@ export function TrackerPage({
     setFormTarget('new')
   }
 
+  const viewProps = {
+    applications: visible,
+    matches,
+    prepRuns,
+    busyId,
+    scoringId,
+    onStatusChange: changeStatus,
+    onScore: (application: Application) => void score(application),
+    onOpenMatch: (application: Application) => setMatchTarget(application),
+    onOpenPrep: (application: Application) =>
+      setPrepTarget({ application, autoStart: false }),
+    onOpenInterviews: (application: Application) => setInterviewsTarget(application),
+    onOpenCoverLetter: (application: Application) => setCoverLetterTarget(application),
+    onOpenInterviewPrep: (application: Application) => setInterviewPrepTarget(application),
+    onEdit: (application: Application) => setFormTarget(application),
+    onDelete: (application: Application) => setDeleteTarget(application),
+  }
+
   return (
     <>
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Applications</h1>
-            <p className="mt-1.5 text-base text-slate-500">
-              Every role you've applied to, and how well your resume fits each one.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={startNewApplication}
-            className="brand-gradient rounded-xl px-5 py-3 text-base font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:opacity-95"
-          >
-            + Add application
-          </button>
-        </div>
+      <div className="space-y-4">
+        <PageHeader
+          title="Applications"
+          description={
+            applications.length === 1 ? '1 application' : `${applications.length} applications`
+          }
+          actions={
+            <Button variant="primary" onClick={startNewApplication}>
+              Add application
+            </Button>
+          }
+        />
 
-        {summary && (
-          <SummaryBar summary={summary} activeFilter={statusFilter} onFilterChange={setStatusFilter} />
-        )}
+        <StatusFilter
+          applications={applications}
+          value={statusFilter}
+          onChange={setStatusFilter}
+        />
 
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative w-full max-w-sm">
-            <span
-              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-              aria-hidden
-            >
-              ⌕
-            </span>
-            <input
-              type="search"
-              placeholder="Search company or role…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-4 text-base placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15"
-            />
+          <div className="w-full max-w-xs">
+            <Field label="Search applications" labelHidden>
+              {(props) => (
+                <Input
+                  {...props}
+                  type="search"
+                  placeholder="Search company or role…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              )}
+            </Field>
           </div>
-          <span className="text-sm font-medium text-slate-500">
-            {visible.length} of {applications.length} shown
-          </span>
-        </div>
-
-        {loadError && applications.length > 0 && (
-          <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-base font-medium text-rose-700">
-            {loadError}
-          </p>
-        )}
-
-        {scoreError && (
-          <div className="flex items-start justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-base text-amber-900">
-            <span className="font-medium">{scoreError}</span>
-            <button
-              type="button"
-              onClick={() => setScoreError(null)}
-              aria-label="Dismiss"
-              className="shrink-0 rounded-lg px-2 py-0.5 font-bold text-amber-700 hover:bg-amber-100"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {loading ? (
-          <p className="py-16 text-center text-base text-slate-500">Loading…</p>
-        ) : loadError && applications.length === 0 ? (
-          /* Never render the "no applications yet" empty state on a failed
-             load — an unreachable API must not look like lost data. */
-          <div className="rounded-2xl border-2 border-rose-200 bg-rose-50/60 py-16 text-center">
-            <p className="text-lg font-bold text-rose-800">Couldn't load your applications</p>
-            <p className="mx-auto mt-2 max-w-md text-base text-rose-700">{loadError}</p>
-            <p className="mx-auto mt-3 max-w-md text-sm text-rose-600">
-              Your data is safe — this only means the app can't reach the server right now.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setLoading(true)
-                void refresh()
-              }}
-              className="mt-5 rounded-xl bg-rose-600 px-5 py-2.5 text-base font-semibold text-white shadow-sm hover:bg-rose-500"
-            >
-              Try again
-            </button>
-          </div>
-        ) : visible.length === 0 ? (
-          <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white py-20 text-center">
-            <p className="text-lg font-bold text-slate-700">
-              {applications.length === 0 ? 'No applications yet' : 'Nothing matches your filters'}
-            </p>
-            <p className="mx-auto mt-2 max-w-md text-base text-slate-500">
-              {applications.length === 0
-                ? 'Add your first application to start tracking your pipeline.'
-                : 'Try clearing the search or status filter.'}
-            </p>
-            {applications.length === 0 && (
+          {filtered && (
+            <p className="text-sm text-fg-muted">
+              Showing <span className="tabular-nums">{visible.length}</span> of{' '}
+              <span className="tabular-nums">{applications.length}</span> ·{' '}
               <button
                 type="button"
-                onClick={startNewApplication}
-                className="brand-gradient mt-6 rounded-xl px-5 py-3 text-base font-semibold text-white shadow-lg shadow-brand-600/25"
+                onClick={clearFilters}
+                className="rounded-sm font-medium text-accent hover:text-accent-hover"
               >
-                + Add your first application
+                Clear filters
               </button>
-            )}
-          </div>
-        ) : (
-          <ApplicationsTable
-            applications={visible}
-            matches={matches}
-            prepRuns={prepRuns}
-            busyId={busyId}
-            scoringId={scoringId}
-            onStatusChange={changeStatus}
-            onScore={(application) => void score(application)}
-            onOpenMatch={(application) => setMatchTarget(application)}
-            onOpenPrep={openPrep}
-            onOpenInterviews={(application) => setInterviewsTarget(application)}
-            onOpenCoverLetter={(application) => setCoverLetterTarget(application)}
-            onOpenInterviewPrep={(application) => setInterviewPrepTarget(application)}
-            onEdit={(application) => setFormTarget(application)}
-            onDelete={(application) => setDeleteTarget(application)}
+            </p>
+          )}
+        </div>
+
+        {/* The only banner on this page, and only for a failed refresh. */}
+        {loadError && applications.length > 0 && <Banner>{loadError}</Banner>}
+
+        {loading ? (
+          <LoadingState />
+        ) : loadError && applications.length === 0 ? (
+          /* Never show the "no applications yet" empty state on a failed load —
+             an unreachable API must not look like lost data. */
+          <Banner
+            action={
+              <Button
+                size="sm"
+                onClick={() => {
+                  setLoading(true)
+                  void refresh()
+                }}
+              >
+                Try again
+              </Button>
+            }
+          >
+            {loadError} Your data is safe — the app just can't reach the server.
+          </Banner>
+        ) : applications.length === 0 ? (
+          <EmptyState
+            title="No applications yet"
+            description="Add your first one to start tracking your pipeline."
+            action={
+              <Button variant="primary" onClick={startNewApplication}>
+                Add application
+              </Button>
+            }
           />
+        ) : visible.length === 0 ? (
+          <EmptyState
+            title="No applications match"
+            description="Try a different search, or clear the status filter."
+            action={<Button onClick={clearFilters}>Clear filters</Button>}
+          />
+        ) : (
+          <>
+            <div className="hidden md:block">
+              <ApplicationsTable
+                {...viewProps}
+                sortKey={sortKey}
+                sortAsc={sortAsc}
+                onSort={sort}
+              />
+            </div>
+            <div className="md:hidden">
+              <ApplicationsList {...viewProps} />
+            </div>
+          </>
         )}
       </div>
 
