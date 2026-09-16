@@ -1,7 +1,7 @@
 import { useId, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
-import { useIsTopmost, useOverlay } from './overlayStack'
+import { useBlockedFromAbove, useOverlay } from './overlayStack'
 import { useFocusScope } from './useFocusScope'
 import { Banner } from './Banner'
 import { Button } from './Button'
@@ -75,7 +75,7 @@ export function Modal({
   }
 
   const id = useOverlay(true, requestClose, () => !busy && !askingDiscard)
-  const topmost = useIsTopmost(id)
+  const blocked = useBlockedFromAbove(id)
   useFocusScope(panelRef, !askingDiscard, initialFocus)
 
   return createPortal(
@@ -91,9 +91,9 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
-        // A modal that isn't on top stops taking clicks and Tab, matching the
-        // page behind it.
-        inert={!topmost}
+        // Only another dialog on top makes this one inert. A menu opened
+        // inside it leaves it live.
+        inert={blocked}
         className={`flex max-h-[calc(100dvh-2rem)] w-full flex-col rounded-surface bg-surface shadow-overlay max-sm:max-h-dvh ${SIZES[size]}`}
       >
         <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">

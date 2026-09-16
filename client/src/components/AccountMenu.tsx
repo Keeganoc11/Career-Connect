@@ -35,6 +35,10 @@ export function AccountMenu({ gmail, onSignOut }: Props) {
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
 
   const { status } = gmail
+  // Three states, not two. Until the first status call resolves we don't know,
+  // and saying "not connected" then would offer a reconnect to someone who is
+  // already connected.
+  const loading = status === null
   const connected = status?.connected === true
   const calendarOn = connected && status.calendarEnabled
   // Connected but without the calendar scope is the one state worth flagging on
@@ -76,7 +80,9 @@ export function AccountMenu({ gmail, onSignOut }: Props) {
           <div className="my-1 border-t border-line" role="separator" />
 
           <div className="px-3 py-2">
-            {connected ? (
+            {loading ? (
+              <p className="text-sm text-fg-muted">Checking your Gmail connection…</p>
+            ) : connected ? (
               <>
                 <p className="flex items-center gap-1.5 text-sm font-medium text-fg">
                   <Dot on /> Gmail connected

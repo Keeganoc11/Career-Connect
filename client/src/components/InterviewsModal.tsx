@@ -56,6 +56,14 @@ export function InterviewsModal({ application, gmail, onClose, onChanged }: Prop
   const download = useAsyncAction()
 
   const calendarOn = gmail?.connected === true && gmail.calendarEnabled
+  // No hint at all until the connection is known — claiming sync is off before
+  // we've checked is a guess presented as fact.
+  const calendarHint =
+    gmail === null
+      ? undefined
+      : calendarOn
+        ? 'Interviews you schedule are added to your Google Calendar.'
+        : 'Calendar sync is off — download the .ics to add one to your calendar.'
 
   const resetForm = () => {
     setEditingId(null)
@@ -205,14 +213,7 @@ export function InterviewsModal({ application, gmail, onClose, onChanged }: Prop
               </Field>
             </div>
 
-            <Field
-              label="Notes"
-              hint={
-                calendarOn
-                  ? 'Interviews you schedule are added to your Google Calendar.'
-                  : 'Calendar sync is off — download the .ics to add one to your calendar.'
-              }
-            >
+            <Field label="Notes" hint={calendarHint}>
               {(props) => (
                 <Textarea
                   {...props}

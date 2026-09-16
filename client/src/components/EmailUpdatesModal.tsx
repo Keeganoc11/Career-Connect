@@ -10,7 +10,7 @@ import { STATUS_LABELS } from '../lib/status'
 import { formatRelative, fromDateTimeLocalValue, toDateTimeLocalValue } from '../lib/format'
 import { useAsyncAction } from '../lib/useAsyncAction'
 import type { GmailConnection } from '../lib/useGmailConnection'
-import { Button, Card, Checkbox, EmptyState, Input, Modal, StatusBadge } from './ui'
+import { Button, Card, Checkbox, EmptyState, Input, LoadingState, Modal, StatusBadge } from './ui'
 
 interface Props {
   gmail: GmailConnection
@@ -221,6 +221,9 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
  */
 export function EmailUpdatesModal({ gmail, onAddNewApplication, onClose }: Props) {
   const { status, updates } = gmail
+  // Until the first status call resolves, "not connected" would be a guess —
+  // and one that offers to send you through OAuth you don't need.
+  const loading = status === null
   const connected = status?.connected === true
   const statusUpdates = updates?.statusUpdates ?? []
   const newApplications = updates?.newApplications ?? []
@@ -256,7 +259,9 @@ export function EmailUpdatesModal({ gmail, onAddNewApplication, onClose }: Props
         </>
       }
     >
-      {!connected ? (
+      {loading ? (
+        <LoadingState label="Checking your Gmail connection…" />
+      ) : !connected ? (
         <EmptyState
           title="Gmail isn't connected"
           description="Connect it and Career Connect reads your recent mail for application updates, and can put interviews on your Google Calendar."

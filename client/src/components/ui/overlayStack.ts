@@ -25,13 +25,23 @@ export type OverlayHandleRef = { current: OverlayHandle }
 interface Entry {
   id: number
   handle: OverlayHandleRef
+  /**
+   * Whether the app behind this overlay should stop taking input. True for a
+   * dialog; false for a popover or menu, which must leave the page clickable —
+   * inerting it would kill click-outside-to-dismiss and freeze the very button
+   * that opened the menu.
+   */
+  blocking: boolean
 }
 
 const stack: Entry[] = []
 const listeners = new Set<() => void>()
 let nextId = 1
 
+let version = 0
+
 function emit() {
+  version++
   for (const listener of listeners) listener()
 }
 
@@ -58,13 +68,22 @@ function setBackgroundBlocked(blocked: boolean) {
   document.body.style.overflow = blocked ? 'hidden' : ''
 }
 
-export function pushOverlay(handle: OverlayHandleRef): number {
+/**
+ * Derived from the whole stack rather than from its size: a menu opened over a
+ * dialog must not un-block the page on its way out, and a menu opened over
+ * nothing must not block it in the first place.
+ */
+function syncBackground() {
+  setBackgroundBlocked(stack.some((entry) => entry.blocking))
+}
+
+export function pushOverlay(handle: OverlayHandleRef, blocking = true): number {
   const id = nextId++
-  stack.push({ id, handle })
+  stack.push({ id, handle, blocking })
   if (stack.length === 1) {
     document.addEventListener('keydown', handleKeyDown, true)
-    setBackgroundBlocked(true)
   }
+  syncBackground()
   emit()
   return id
 }
@@ -75,8 +94,8 @@ export function removeOverlay(id: number) {
   stack.splice(index, 1)
   if (stack.length === 0) {
     document.removeEventListener('keydown', handleKeyDown, true)
-    setBackgroundBlocked(false)
   }
+  syncBackground()
   emit()
 }
 
@@ -87,17 +106,25 @@ function subscribe(listener: () => void) {
   }
 }
 
-function topmostId(): number | null {
-  return stack.length === 0 ? null : stack[stack.length - 1].id
+function versionSnapshot(): number {
+  return version
 }
 
 /**
- * Whether this overlay is the one on top. A stacked-under overlay goes inert so
- * clicks and Tab can't reach it, the same way the page behind does.
+ * Whether a *blocking* overlay sits above this one — the condition for going
+ * inert.
+ *
+ * Deliberately not "is this the topmost": a menu opened inside a dialog sits
+ * above it without blocking it, and inerting the dialog then would freeze it
+ * and, because inert suppresses pointer events, stop a click on it from
+ * dismissing that menu.
  */
-export function useIsTopmost(id: number | null): boolean {
-  const top = useSyncExternalStore(subscribe, topmostId, topmostId)
-  return id !== null && top === id
+export function useBlockedFromAbove(id: number | null): boolean {
+  useSyncExternalStore(subscribe, versionSnapshot, versionSnapshot)
+  if (id === null) return false
+  const index = stack.findIndex((entry) => entry.id === id)
+  if (index === -1) return false
+  return stack.slice(index + 1).some((entry) => entry.blocking)
 }
 
 /**
@@ -112,6 +139,8 @@ export function useOverlay(
   active: boolean,
   close: () => void,
   dismissable: () => boolean = () => true,
+  /** False for popovers and menus — see Entry.blocking. */
+  blocking = true,
 ): number | null {
   const handle = useRef<OverlayHandle>({ close, dismissable })
   handle.current = { close, dismissable }
@@ -120,13 +149,13 @@ export function useOverlay(
 
   useEffect(() => {
     if (!active) return
-    const entryId = pushOverlay(handle)
+    const entryId = pushOverlay(handle, blocking)
     setId(entryId)
     return () => {
       removeOverlay(entryId)
       setId(null)
     }
-  }, [active])
+  }, [active, blocking])
 
   return id
 }

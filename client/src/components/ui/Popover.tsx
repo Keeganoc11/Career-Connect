@@ -25,7 +25,9 @@ export function Popover({ anchorRef, children, align = 'start', onClose }: Props
   const panelRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
 
-  useOverlay(true, onClose)
+  // Non-blocking: the page stays live behind a menu, so clicking elsewhere
+  // dismisses it and the trigger can toggle it shut.
+  useOverlay(true, onClose, () => true, false)
   useFocusScope(panelRef, true)
 
   useLayoutEffect(() => {
