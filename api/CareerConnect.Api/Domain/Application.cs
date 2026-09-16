@@ -36,6 +36,9 @@ public class Application
 
     public DateTime? InterviewPrepGeneratedAtUtc { get; set; }
 
+    /// <summary>When the user last said they sent a follow-up. Resets how long the application counts as silent.</summary>
+    public DateTime? LastFollowUpAtUtc { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 

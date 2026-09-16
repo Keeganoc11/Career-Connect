@@ -1,6 +1,8 @@
 using CareerConnect.Api.Domain;
 using CareerConnect.Api.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CareerConnect.Api.Tests;
 
@@ -11,13 +13,19 @@ public sealed class GmailUpdateScannerTests : IDisposable
     private readonly FakeGmailMailReader _mailReader = new();
     private readonly FakeEmailStatusClassifier _classifier = new();
     private readonly FakeInterviewDetailsExtractor _interviewExtractor = new();
+    private readonly FakeInterviewCalendarSync _calendar = new();
     private readonly GmailUpdateScanner _scanner;
     private readonly Guid _userId;
 
     public GmailUpdateScannerTests()
     {
         _userId = _fixture.SeedUser("me@example.com");
-        _scanner = new GmailUpdateScanner(_fixture.Db, _oauth, _mailReader, _classifier, _interviewExtractor);
+        var automation = new ApplicationAutomation(
+            _fixture.Db,
+            new InterviewService(_fixture.Db, _calendar),
+            new ConfigurationBuilder().Build(),
+            NullLogger<ApplicationAutomation>.Instance);
+        _scanner = new GmailUpdateScanner(_fixture.Db, _oauth, _mailReader, _classifier, _interviewExtractor, automation);
     }
 
     public void Dispose() => _fixture.Dispose();
@@ -271,6 +279,67 @@ public sealed class GmailUpdateScannerTests : IDisposable
         var change = await _fixture.Db.StatusChanges.AsNoTracking()
             .SingleAsync(c => c.ApplicationId == app.Id && c.ToStatus == ApplicationStatus.Applied);
         Assert.Equal(ChangeSource.EmailAutomatic, change.Source);
+    }
+
+    [Fact]
+    public async Task ScanAsync_AppliesAClearRejectionWithoutAsking()
+    {
+        var app = _fixture.SeedApplication(_userId, "Acme", status: ApplicationStatus.Applied);
+        _mailReader.Result = [new CandidateEmail(0, "Your application", "talent@acme.com", "We won't be moving forward", DateTime.UtcNow)];
+        _classifier.Result = [new EmailClassificationMatch(0, 0, "Rejected", "Says they won't move forward.", "clear")];
+
+        var outcome = await _scanner.ScanAsync(_userId);
+
+        var success = Assert.IsType<GmailScanOutcome.Success>(outcome);
+        Assert.Empty(success.StatusUpdates);
+        var applied = Assert.Single(success.AutoApplied);
+        Assert.Equal(ApplicationStatus.Rejected, applied.ToStatus);
+        Assert.NotNull(applied.ActivityId);
+        Assert.Equal(ApplicationStatus.Rejected,
+            (await _fixture.Db.Applications.AsNoTracking().FirstAsync(a => a.Id == app.Id)).Status);
+    }
+
+    [Fact]
+    public async Task ScanAsync_StillSuggests_WhenTheRejectionIsOnlyLikely()
+    {
+        _fixture.SeedApplication(_userId, "Acme", status: ApplicationStatus.Applied);
+        _mailReader.Result = [new CandidateEmail(0, "Update", "talent@acme.com", "We've had a lot of applicants", DateTime.UtcNow)];
+        _classifier.Result = [new EmailClassificationMatch(0, 0, "Rejected", "Sounds like a no.", "likely")];
+
+        var success = Assert.IsType<GmailScanOutcome.Success>(await _scanner.ScanAsync(_userId));
+
+        Assert.Empty(success.AutoApplied);
+        Assert.Single(success.StatusUpdates);
+    }
+
+    [Fact]
+    public async Task ScanAsync_AppliesAClearInvite_AndSchedulesTheInterview()
+    {
+        var app = _fixture.SeedApplication(_userId, "Acme", status: ApplicationStatus.Applied);
+        SeedInterviewEmail();
+        _classifier.Result = [new EmailClassificationMatch(0, 0, "Interview", "Explicit interview invite.", "clear")];
+        var scheduled = new DateTimeOffset(2026, 9, 10, 14, 0, 0, TimeSpan.FromHours(-4));
+        _interviewExtractor.ResultByIndex = new() { [0] = (scheduled, "Technical") };
+
+        var success = Assert.IsType<GmailScanOutcome.Success>(await _scanner.ScanAsync(_userId));
+
+        Assert.Single(success.AutoApplied);
+        var interview = await _fixture.Db.InterviewEvents.AsNoTracking().SingleAsync(i => i.ApplicationId == app.Id);
+        Assert.Equal(scheduled.UtcDateTime, interview.ScheduledAtUtc);
+        Assert.Equal(InterviewKind.Technical, interview.Kind);
+    }
+
+    [Fact]
+    public async Task ScanAsync_NeverAppliesAnOffer_HoweverClear()
+    {
+        _fixture.SeedApplication(_userId, "Acme", status: ApplicationStatus.Interview);
+        _mailReader.Result = [new CandidateEmail(0, "Offer letter", "talent@acme.com", "We're pleased to offer", DateTime.UtcNow)];
+        _classifier.Result = [new EmailClassificationMatch(0, 0, "Offer", "An offer.", "clear")];
+
+        var success = Assert.IsType<GmailScanOutcome.Success>(await _scanner.ScanAsync(_userId));
+
+        Assert.Empty(success.AutoApplied);
+        Assert.Single(success.StatusUpdates);
     }
 
     [Fact]

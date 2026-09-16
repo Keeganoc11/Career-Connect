@@ -10,7 +10,8 @@ public class GmailUpdateScanner(
     IGmailOAuthService oauth,
     IGmailMailReader mailReader,
     IEmailStatusClassifier classifier,
-    IInterviewDetailsExtractor interviewExtractor) : IGmailUpdateScanner
+    IInterviewDetailsExtractor interviewExtractor,
+    IApplicationAutomation automation) : IGmailUpdateScanner
 {
     // Rejected/Withdrawn applications are done; scanning for updates on them
     // just adds noise the classifier has to filter back out.
@@ -81,11 +82,11 @@ public class GmailUpdateScanner(
             return new GmailScanOutcome.Failed($"Email classification failed: {ex.Message}");
         }
 
-        var statusUpdates = new List<SuggestedStatusUpdate>();
-        var autoApplied = new List<AutoAppliedResponse>();
-
-        // Which email produced each suggestion, so the interview pass can go
-        // back for the ones worth reading in full.
+        // Every usable match becomes a candidate first, so the interview pass
+        // can read times for all of them — a clear-cut invite that's applied
+        // automatically should put its interview on the calendar too.
+        var candidates = new List<SuggestedStatusUpdate>();
+        var clearCut = new List<bool>();
         var interviewCandidates = new Dictionary<int, CandidateEmail>();
         foreach (var match in result.StatusMatches)
         {
@@ -106,26 +107,7 @@ public class GmailUpdateScanner(
                 continue; // Already reflects this status — nothing to suggest.
             }
 
-            // The user prepped this application to apply to it, and the company
-            // says they received it. Confirming that isn't a judgement call, so
-            // it doesn't need to sit in a review queue.
-            if (application.Status == ApplicationStatus.Preparing && suggestedStatus == ApplicationStatus.Applied)
-            {
-                await ApplyConfirmedAsync(application.Id, email.ReceivedAtUtc, cancellationToken);
-                autoApplied.Add(new AutoAppliedResponse
-                {
-                    ApplicationId = application.Id,
-                    CompanyName = application.CompanyName,
-                    RoleTitle = application.RoleTitle,
-                    Reasoning = match.Reasoning,
-                    EmailSubject = email.Subject,
-                    EmailFrom = email.From,
-                    EmailReceivedAtUtc = email.ReceivedAtUtc,
-                });
-                continue;
-            }
-
-            statusUpdates.Add(new SuggestedStatusUpdate(
+            candidates.Add(new SuggestedStatusUpdate(
                 application.Id,
                 application.CompanyName,
                 application.RoleTitle,
@@ -135,11 +117,58 @@ public class GmailUpdateScanner(
                 email.Subject,
                 email.From,
                 email.ReceivedAtUtc));
-
-            interviewCandidates[statusUpdates.Count - 1] = email;
+            clearCut.Add(match.IsClearCut);
+            interviewCandidates[candidates.Count - 1] = email;
         }
 
-        await AttachInterviewTimesAsync(userId, statusUpdates, interviewCandidates, cancellationToken);
+        await AttachInterviewTimesAsync(userId, candidates, interviewCandidates, cancellationToken);
+
+        var statusUpdates = new List<SuggestedStatusUpdate>();
+        var autoApplied = new List<AutoAppliedResponse>();
+        var handled = new HashSet<Guid>();
+
+        // Newest email first, so if two emails about one application both
+        // qualify, the latest word is the one that's applied.
+        foreach (var (candidate, index) in candidates.Select((c, i) => (c, i)).OrderByDescending(x => x.c.EmailReceivedAtUtc))
+        {
+            if (!handled.Contains(candidate.ApplicationId)
+                && AutoApplyPolicy.ShouldApply(candidate.CurrentStatus, candidate.SuggestedStatus, clearCut[index]))
+            {
+                var activity = await automation.ApplyFromEmailAsync(
+                    userId,
+                    candidate.ApplicationId,
+                    candidate.SuggestedStatus,
+                    new EmailEvidence(candidate.Reasoning, candidate.EmailSubject, candidate.EmailFrom, candidate.EmailReceivedAtUtc),
+                    candidate is { InterviewAtUtc: { } at, InterviewKind: { } kind } ? (at, kind) : null,
+                    cancellationToken);
+
+                if (activity is not null)
+                {
+                    handled.Add(candidate.ApplicationId);
+                    autoApplied.Add(new AutoAppliedResponse
+                    {
+                        ApplicationId = candidate.ApplicationId,
+                        ActivityId = activity.Id,
+                        CompanyName = candidate.CompanyName,
+                        RoleTitle = candidate.RoleTitle,
+                        FromStatus = activity.FromStatus,
+                        ToStatus = activity.ToStatus,
+                        Reasoning = candidate.Reasoning,
+                        EmailSubject = candidate.EmailSubject,
+                        EmailFrom = candidate.EmailFrom,
+                        EmailReceivedAtUtc = candidate.EmailReceivedAtUtc,
+                    });
+                    continue;
+                }
+            }
+
+            // An older email about something already applied automatically is
+            // stale by definition — the newer one settled it.
+            if (!handled.Contains(candidate.ApplicationId))
+            {
+                statusUpdates.Add(candidate);
+            }
+        }
 
         // Defense in depth against the model re-reporting a company that's
         // already tracked, or reporting the same new company twice in one
@@ -179,11 +208,6 @@ public class GmailUpdateScanner(
             autoApplied);
     }
 
-    /// <summary>
-    /// Moves one Preparing application to Applied, dating it to the
-    /// confirmation email rather than today — that's when the application
-    /// actually landed, and the pipeline's date ordering depends on it.
-    /// </summary>
     /// <summary>
     /// Second pass: for suggestions that point at an interview, open those
     /// emails and read the scheduled time out of the body. Nothing is written —
@@ -259,32 +283,6 @@ public class GmailUpdateScanner(
                 InterviewKind = kind,
             };
         }
-    }
-
-    private async Task ApplyConfirmedAsync(Guid applicationId, DateTime confirmedAtUtc, CancellationToken cancellationToken)
-    {
-        var application = await db.Applications
-            .FirstOrDefaultAsync(a => a.Id == applicationId, cancellationToken);
-
-        if (application is null || application.Status != ApplicationStatus.Preparing)
-        {
-            return;
-        }
-
-        db.StatusChanges.Add(new StatusChange
-        {
-            Id = Guid.NewGuid(),
-            ApplicationId = application.Id,
-            FromStatus = application.Status,
-            ToStatus = ApplicationStatus.Applied,
-            ChangedAtUtc = DateTime.UtcNow,
-            Source = ChangeSource.EmailAutomatic,
-        });
-
-        application.Status = ApplicationStatus.Applied;
-        application.DateApplied = DateOnly.FromDateTime(confirmedAtUtc);
-
-        await db.SaveChangesAsync(cancellationToken);
     }
 
     private static SuggestedStatusUpdateResponse ToResponse(SuggestedStatusUpdate s) => new()

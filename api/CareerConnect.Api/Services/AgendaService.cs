@@ -119,13 +119,17 @@ public class AgendaService(AppDbContext db) : IAgendaService
                 Nudge(application, NudgeKind.NeverPrepped, idleDays,
                     $"Saved {idleDays} days ago and never tailored."),
 
+            // Normally marked ghosted automatically at this point; this covers
+            // the gap between sweeps, and anyone who turned the sweep off.
             ApplicationStatus.Applied when idleDays >= ProbablyGhostedDays =>
                 Nudge(application, NudgeKind.ProbablyGhosted, idleDays,
                     $"Silent for {idleDays} days — probably worth marking ghosted."),
 
             ApplicationStatus.Applied when idleDays >= SilentAfterApplyingDays =>
                 Nudge(application, NudgeKind.Silent, idleDays,
-                    $"No response in {idleDays} days. Worth a follow-up."),
+                    application.LastFollowUpAtUtc is null
+                        ? $"No response in {idleDays} days. Worth a follow-up."
+                        : $"Still nothing {idleDays} days after your follow-up. One more, then let it go."),
 
             ApplicationStatus.PhoneScreen or ApplicationStatus.Interview when idleDays >= SilentMidProcessDays =>
                 Nudge(application, NudgeKind.Silent, idleDays,

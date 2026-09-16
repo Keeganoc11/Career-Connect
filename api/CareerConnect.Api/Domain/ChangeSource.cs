@@ -9,10 +9,16 @@ public enum ChangeSource
     EmailSuggestion,
 
     /// <summary>
-    /// Applied without asking, off a Gmail confirmation. Only ever used for
-    /// Preparing → Applied: the user already decided to apply, so a matching
-    /// "we received your application" email is confirmation, not a judgement
-    /// call. Every other transition still goes through review.
+    /// Applied without asking, off a clear-cut email: a confirmation for an
+    /// application being prepared, a rejection, or an invite that moves the
+    /// process forward. Anything less certain still goes through review, and
+    /// every one of these can be undone.
     /// </summary>
-    EmailAutomatic
+    EmailAutomatic,
+
+    /// <summary>
+    /// Marked ghosted after a long silence. Undoable, like every change the app
+    /// makes on its own (see <see cref="ActivityEvent"/>).
+    /// </summary>
+    Inactivity,
 }

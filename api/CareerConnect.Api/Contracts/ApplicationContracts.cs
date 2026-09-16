@@ -84,12 +84,19 @@ public class ApplicationResponse
     public string? JobDescriptionText { get; init; }
     public string? TailoredResumeText { get; init; }
     public string? CoverLetterText { get; init; }
+    public DateTime? LastFollowUpAtUtc { get; init; }
     public required DateTime CreatedAtUtc { get; init; }
     public required DateTime UpdatedAtUtc { get; init; }
     public List<StatusChangeResponse>? StatusHistory { get; init; }
 
     /// <summary>Always present, unlike status history — the list view shows each row's next interview.</summary>
     public required List<InterviewEventResponse> Interviews { get; init; }
+}
+
+public class FollowUpDraftResponse
+{
+    public required string Subject { get; init; }
+    public required string Body { get; init; }
 }
 
 public class StatusCountResponse

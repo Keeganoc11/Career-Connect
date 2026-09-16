@@ -42,10 +42,11 @@ public interface IGmailUpdateScanner
     /// Scans recent Gmail for replies about the user's open applications and
     /// returns suggested status changes for the caller to accept or dismiss.
     ///
-    /// The one exception is Preparing → Applied: an application the user was
-    /// prepping, plus a confirmation email from that company, is the user's own
-    /// decision coming back as fact. Those are applied here and reported under
-    /// AutoApplied. Every other transition stays a suggestion.
+    /// Clear-cut ones are the exception (see <see cref="AutoApplyPolicy"/>): a
+    /// confirmation for an application being prepared, an outright rejection,
+    /// an invite that moves the process forward. Those are applied here,
+    /// recorded for undo, and reported under AutoApplied. Everything less
+    /// certain stays a suggestion.
     /// </summary>
     Task<GmailScanOutcome> ScanAsync(Guid userId, CancellationToken cancellationToken = default);
 }

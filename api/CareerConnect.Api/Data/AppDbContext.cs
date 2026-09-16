@@ -13,6 +13,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<GmailConnection> GmailConnections => Set<GmailConnection>();
     public DbSet<PrepRun> PrepRuns => Set<PrepRun>();
     public DbSet<InterviewEvent> InterviewEvents => Set<InterviewEvent>();
+    public DbSet<ActivityEvent> ActivityEvents => Set<ActivityEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -122,6 +123,23 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
             // Every read is "what's coming up", so the schedule is the index.
             interview.HasIndex(i => new { i.ApplicationId, i.ScheduledAtUtc });
+        });
+
+        modelBuilder.Entity<ActivityEvent>(activity =>
+        {
+            activity.Property(a => a.Trigger).HasConversion<string>().HasMaxLength(50);
+            activity.Property(a => a.FromStatus).HasConversion<string>().HasMaxLength(50);
+            activity.Property(a => a.ToStatus).HasConversion<string>().HasMaxLength(50);
+            activity.Property(a => a.EmailSubject).HasMaxLength(1000);
+            activity.Property(a => a.EmailFrom).HasMaxLength(500);
+
+            activity.HasOne(a => a.Application)
+                    .WithMany()
+                    .HasForeignKey(a => a.ApplicationId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+            // The feed is always "this user's recent changes".
+            activity.HasIndex(a => new { a.UserId, a.CreatedAtUtc });
         });
 
         modelBuilder.Entity<GmailConnection>(gmail =>

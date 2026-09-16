@@ -81,10 +81,16 @@ public class SuggestedNewApplicationResponse
     public required DateTime EmailReceivedAtUtc { get; init; }
 }
 
-/// <summary>An application moved Preparing → Applied without asking, off a confirmation email.</summary>
+/// <summary>A status change made without asking, off a clear-cut email. Undo it through the activity feed.</summary>
 public class AutoAppliedResponse
 {
     public required Guid ApplicationId { get; init; }
+
+    /// <summary>The activity row that can undo this. Absent on updates stored before undo existed.</summary>
+    public Guid? ActivityId { get; init; }
+
+    public ApplicationStatus FromStatus { get; init; } = ApplicationStatus.Preparing;
+    public ApplicationStatus ToStatus { get; init; } = ApplicationStatus.Applied;
     public required string CompanyName { get; init; }
     public required string RoleTitle { get; init; }
     public required string Reasoning { get; init; }

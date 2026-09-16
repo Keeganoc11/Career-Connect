@@ -14,7 +14,7 @@ public class GmailBackgroundScanService(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var intervalHours = configuration.GetValue("Gmail:ScanIntervalHours", 24);
+        var intervalHours = configuration.GetValue("Gmail:ScanIntervalHours", 6);
         if (intervalHours <= 0)
         {
             logger.LogInformation("Scheduled Gmail scanning is disabled (Gmail:ScanIntervalHours <= 0).");

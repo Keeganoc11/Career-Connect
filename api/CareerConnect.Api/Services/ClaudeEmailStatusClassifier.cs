@@ -52,6 +52,16 @@ public class ClaudeEmailStatusClassifier : IEmailStatusClassifier
         list, that email belongs under Job 1 (or nowhere) — never report it as
         new, since that would create a duplicate.
 
+        For every status match, also say how certain it is:
+        - "clear": the email states the outcome in so many words — "we've
+          decided not to move forward", "we'd like to schedule a phone screen",
+          "your interview is confirmed for…", "we received your application".
+        - "likely": the status is implied or inferred — a vague "we'll be in
+          touch", a scheduling tool link with no context, a recruiter asking
+          for availability without saying what for.
+        Clear matches are applied automatically (the candidate can undo them),
+        so reserve "clear" for emails where nobody reading it could disagree.
+
         Every email should be considered for both jobs, but most emails will
         match neither — that's expected. Marketing, newsletters, and anything
         unrelated should never be reported under either job. When genuinely
@@ -163,8 +173,14 @@ public class ClaudeEmailStatusClassifier : IEmailStatusClassifier
                             type = "string",
                             description = "One sentence explaining the match, referencing what the email actually says.",
                         },
+                        certainty = new
+                        {
+                            type = "string",
+                            @enum = new[] { "clear", "likely" },
+                            description = "\"clear\" only when the email states the outcome outright; otherwise \"likely\".",
+                        },
                     },
-                    required = new[] { "email_index", "application_index", "suggested_status", "reasoning" },
+                    required = new[] { "email_index", "application_index", "suggested_status", "reasoning", "certainty" },
                     additionalProperties = false,
                 },
                 description = "Only confident status matches against tracked applications — omit anything ambiguous or unrelated.",

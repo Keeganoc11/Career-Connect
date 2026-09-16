@@ -16,6 +16,7 @@ public class ApplicationsController(
     IInterviewPrepService interviewPrep,
     IPrepRunService prepRuns,
     IJobCaptureService jobCapture,
+    IFollowUpService followUps,
     IResumeRenderer renderer) : ApiControllerBase
 {
     [HttpGet]
@@ -213,6 +214,32 @@ public class ApplicationsController(
 
             _ => StatusCode(StatusCodes.Status500InternalServerError),
         };
+    }
+
+    /// <summary>A follow-up email to copy and send yourself. Nothing is sent from here.</summary>
+    [HttpPost("{id:guid}/follow-up")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<FollowUpDraftResponse>> DraftFollowUp(Guid id, CancellationToken cancellationToken) =>
+        await followUps.DraftAsync(UserId, id, cancellationToken) switch
+        {
+            FollowUpOutcome.Drafted drafted => Ok(new FollowUpDraftResponse { Subject = drafted.Draft.Subject, Body = drafted.Draft.Body }),
+            FollowUpOutcome.Unavailable unavailable => StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new ProblemDetails { Title = unavailable.Message, Status = StatusCodes.Status503ServiceUnavailable }),
+            FollowUpOutcome.Failed failed => StatusCode(StatusCodes.Status502BadGateway,
+                new ProblemDetails { Title = failed.Message, Status = StatusCodes.Status502BadGateway }),
+            _ => NotFound(),
+        };
+
+    /// <summary>Records that a follow-up went out, restarting how long the application counts as silent.</summary>
+    [HttpPost("{id:guid}/followed-up")]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApplicationResponse>> MarkFollowedUp(Guid id, CancellationToken cancellationToken)
+    {
+        var updated = await followUps.MarkSentAsync(UserId, id, cancellationToken);
+        return updated is null ? NotFound() : Ok(updated);
     }
 
     /// <summary>The tailored resume as a PDF, in the base resume's exact format.</summary>

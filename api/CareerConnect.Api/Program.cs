@@ -62,6 +62,10 @@ builder.Services.AddHostedService<PrepRunBackgroundService>();
 builder.Services.AddScoped<IInterviewService, InterviewService>();
 builder.Services.AddScoped<IInterviewCalendarSync, GoogleInterviewCalendarSync>();
 builder.Services.AddScoped<IAgendaService, AgendaService>();
+builder.Services.AddScoped<IApplicationAutomation, ApplicationAutomation>();
+builder.Services.AddSingleton<IFollowUpWriter, ClaudeFollowUpWriter>();
+builder.Services.AddScoped<IFollowUpService, FollowUpService>();
+builder.Services.AddHostedService<AutomationBackgroundService>();
 
 // Encrypts the stored Gmail refresh token (see GmailOAuthService). Without a
 // persisted key ring, a container redeploy generates a new one and silently

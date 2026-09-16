@@ -10,7 +10,16 @@ public record CandidateEmail(
 
 public record OpenApplicationContext(int Index, string CompanyName, string RoleTitle, string CurrentStatus);
 
-public record EmailClassificationMatch(int EmailIndex, int ApplicationIndex, string SuggestedStatus, string Reasoning);
+/// <param name="Certainty">
+/// "clear" when the email states the outcome outright ("we won't be moving
+/// forward", "let's schedule a phone screen"); "likely" when it's implied.
+/// Only clear matches are ever applied without review.
+/// </param>
+public record EmailClassificationMatch(
+    int EmailIndex, int ApplicationIndex, string SuggestedStatus, string Reasoning, string Certainty = "likely")
+{
+    public bool IsClearCut => string.Equals(Certainty, "clear", StringComparison.OrdinalIgnoreCase);
+}
 
 public record EmailNewApplicationMatch(int EmailIndex, string CompanyName, string RoleTitle, string Reasoning);
 

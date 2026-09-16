@@ -217,6 +217,7 @@ public class ApplicationService(AppDbContext db, IInterviewCalendarSync calendar
         JobDescriptionText = a.JobDescriptionText,
         TailoredResumeText = a.TailoredResumeText,
         CoverLetterText = a.CoverLetterText,
+        LastFollowUpAtUtc = a.LastFollowUpAtUtc,
         CreatedAtUtc = a.CreatedAtUtc,
         UpdatedAtUtc = a.UpdatedAtUtc,
         Interviews = a.Interviews
