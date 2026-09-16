@@ -9,6 +9,8 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Outside #root so toasts survive the inert attribute an open dialog sets there. -->
+    <div id="toaster"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

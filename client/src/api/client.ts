@@ -57,8 +57,32 @@ export const auth = {
   },
 }
 
-async function handleResponse<T>(response: Response): Promise<T> {
+let onUnauthorized: (() => void) | null = null
+
+/**
+ * Called when a request that carried a token comes back 401 — the session
+ * expired, so the app signs out. Registered once, which is what lets each
+ * screen render its own errors next to its own action instead of routing
+ * everything through one page-level setter.
+ */
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler
+}
+
+/**
+ * Only fires when a token was actually sent. A wrong password at the login
+ * screen is also a 401, and signing out of a session that never started would
+ * just clear the form.
+ */
+function noteUnauthorized(status: number, authenticated: boolean) {
+  if (status !== 401 || !authenticated) return
+  auth.clear()
+  onUnauthorized?.()
+}
+
+async function handleResponse<T>(response: Response, authenticated: boolean): Promise<T> {
   if (!response.ok) {
+    noteUnauthorized(response.status, authenticated)
     let message = `Request failed (${response.status})`
     try {
       const problem = await response.json()
@@ -101,7 +125,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(0, UNREACHABLE_MESSAGE)
   }
 
-  return handleResponse<T>(response)
+  return handleResponse<T>(response, token !== null)
 }
 
 /** Multipart upload — no Content-Type header, fetch sets the boundary itself. */
@@ -119,7 +143,7 @@ async function requestFile<T>(path: string, formData: FormData): Promise<T> {
     throw new ApiError(0, UNREACHABLE_MESSAGE)
   }
 
-  return handleResponse<T>(response)
+  return handleResponse<T>(response, token !== null)
 }
 
 export const api = {
@@ -296,6 +320,7 @@ export const api = {
     }
 
     if (!response.ok) {
+      noteUnauthorized(response.status, token !== null)
       throw new ApiError(response.status, `Couldn't build the calendar file (${response.status}).`)
     }
     return response.text()
