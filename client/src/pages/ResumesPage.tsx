@@ -1,10 +1,26 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { api, ApiError } from '../api/client'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { MoreHorizontal, Star, Trash2, Upload } from 'lucide-react'
+import { api } from '../api/client'
 import type { ResumeSummary } from '../api/types'
 import { formatRelative } from '../lib/format'
-import { ConfirmDialog } from '../components/ui'
-import { fieldClass as inputClass } from '../lib/styles'
 import { errorMessage } from '../lib/errors'
+import { useAsyncAction } from '../lib/useAsyncAction'
+import {
+  Badge,
+  Banner,
+  Button,
+  Card,
+  ConfirmDialog,
+  EmptyState,
+  Field,
+  IconButton,
+  Input,
+  LoadingState,
+  Menu,
+  PageHeader,
+  Textarea,
+  toast,
+} from '../components/ui'
 
 const MIN_CONTENT = 50
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -17,15 +33,19 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [label, setLabel] = useState('')
   const [content, setContent] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [savedAt, setSavedAt] = useState<number | null>(null)
+  /** What's on the server, so "edited" is a comparison rather than a flag. */
+  const [saved, setSaved] = useState({ label: '', content: '' })
   const [deleteTarget, setDeleteTarget] = useState<ResumeSummary | null>(null)
-  const [deleting, setDeleting] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
+  /** Held while the discard prompt is up, run if the user confirms. */
+  const [pending, setPending] = useState<(() => void) | null>(null)
 
-  // Signing out on a 401 is handled once, inside api/client; errorMessage
-  // returns null for it, so nothing is rendered on the way out.
+  const editorRef = useRef<HTMLDivElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const save = useAsyncAction()
+  const upload = useAsyncAction()
+  const deletion = useAsyncAction()
+
   const handleError = useCallback((e: unknown) => setError(errorMessage(e)), [])
 
   const refresh = useCallback(async () => {
@@ -39,15 +59,32 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
     }
   }, [handleError])
 
-  // dataVersion changes when something outside this page edited resumes.
   useEffect(() => {
     void refresh()
   }, [refresh, dataVersion])
+
+  const dirty = label !== saved.label || content !== saved.content
+
+  // The editor holds the only copy of unsaved text, so leaving the tab would
+  // lose it outright.
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
+
+  /** Anything that would replace the editor's contents goes through here. */
+  const guard = (action: () => void) => {
+    if (dirty) setPending(() => action)
+    else action()
+  }
 
   const startNew = () => {
     setEditingId(null)
     setLabel('')
     setContent('')
+    setSaved({ label: '', content: '' })
   }
 
   const startEdit = async (id: string) => {
@@ -56,266 +93,210 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
       setEditingId(resume.id)
       setLabel(resume.label)
       setContent(resume.content)
+      setSaved({ label: resume.label, content: resume.content })
+      // On a phone the editor sits below the list, so selecting a resume would
+      // otherwise look like nothing happened.
+      if (window.matchMedia('(max-width: 1023px)').matches) {
+        editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
     } catch (e) {
       handleError(e)
     }
   }
 
-  const handleUpload = async (file: File | undefined) => {
+  const handleUpload = (file: File | undefined) => {
     if (!file) return
-    setUploadError(null)
-
     if (file.size > MAX_UPLOAD_BYTES) {
-      setUploadError('That file is too large — please stay under 10 MB.')
+      toast.error('That file is too large — please stay under 10 MB.')
       return
     }
 
-    setUploading(true)
-    try {
+    void upload.run(async () => {
       const created = await api.uploadResume(file)
       await refresh()
-      // Extracted text often needs a quick clean-up pass, so land the user
-      // in the editor rather than silently filing it away.
+      // Extracted text usually needs a clean-up pass, so land in the editor
+      // rather than filing it away silently.
       setEditingId(created.id)
       setLabel(created.label)
       setContent(created.content)
-      setSavedAt(Date.now())
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        handleError(e)
-      } else {
-        setUploadError(e instanceof Error ? e.message : 'Upload failed.')
-      }
-    } finally {
-      setUploading(false)
-    }
+      setSaved({ label: created.label, content: created.content })
+      toast.success(`“${created.label}” uploaded.`)
+    })
   }
 
-  const save = async (event: FormEvent) => {
+  const submit = (event: FormEvent) => {
     event.preventDefault()
-    setSaving(true)
-    setError(null)
-    try {
+    void save.run(async () => {
       const input = { label: label.trim(), content: content.trim() }
-      const saved = editingId
+      const result = editingId
         ? await api.updateResume(editingId, input)
         : await api.createResume(input)
-      setEditingId(saved.id)
-      setSavedAt(Date.now())
+      setEditingId(result.id)
+      setSaved({ label: input.label, content: input.content })
       await refresh()
+      toast.success('Resume saved.')
+    })
+  }
+
+  const makeActive = async (resume: ResumeSummary) => {
+    try {
+      await api.setActiveResume(resume.id)
+      await refresh()
+      toast.success(`“${resume.label}” is now your active resume.`)
     } catch (e) {
-      handleError(e)
-    } finally {
-      setSaving(false)
+      toast.error(errorMessage(e) ?? 'Could not set that resume active.')
     }
   }
 
-  const makeActive = async (id: string) => {
-    try {
-      await api.setActiveResume(id)
-      await refresh()
-    } catch (e) {
-      handleError(e)
-    }
-  }
-
-  const confirmDelete = async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try {
+  const confirmDelete = () =>
+    void deletion.run(async () => {
+      if (!deleteTarget) return
       await api.deleteResume(deleteTarget.id)
       if (editingId === deleteTarget.id) startNew()
+      const { label: deleted } = deleteTarget
       setDeleteTarget(null)
       await refresh()
-    } catch (e) {
-      handleError(e)
-      setDeleteTarget(null)
-    } finally {
-      setDeleting(false)
-    }
-  }
+      toast.success(`“${deleted}” deleted.`)
+    })
 
   const trimmed = content.trim().length
   const tooShort = trimmed > 0 && trimmed < MIN_CONTENT
-  const justSaved = savedAt !== null && Date.now() - savedAt < 4000
 
   return (
-    <div>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Resumes</h1>
-          <p className="mt-1.5 max-w-2xl text-base text-slate-500">
-            Upload a PDF or Word doc, or paste the text directly. The one marked{' '}
-            <strong className="font-semibold text-brand-700">active</strong> is what new match
-            scores are calculated against — keep several versions if you tailor per role.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={startNew}
-          className="brand-gradient rounded-xl px-5 py-3 text-base font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:opacity-95"
-        >
-          + New resume
-        </button>
-      </div>
-
-      {error && (
-        <p className="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-base font-medium text-rose-700">
-          {error}
-        </p>
-      )}
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-[340px_1fr]">
-        <section aria-label="Saved resumes" className="space-y-3">
-          {loading ? (
-            <p className="py-8 text-center text-base text-slate-500">Loading…</p>
-          ) : resumes.length === 0 ? (
-            <p className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-5 text-base text-slate-500">
-              No resumes yet. Paste one on the right to unlock match scoring.
-            </p>
-          ) : (
-            <ul className="space-y-3">
-              {resumes.map((resume) => {
-                const selected = editingId === resume.id
-                return (
-                  <li
-                    key={resume.id}
-                    className={`overflow-hidden rounded-2xl bg-white shadow-sm ring-2 transition ${
-                      selected ? 'ring-brand-400' : 'ring-slate-200/70 hover:ring-slate-300'
-                    }`}
-                  >
-                    {resume.isActive && <div className="brand-gradient h-1.5 w-full" aria-hidden />}
-                    <div className="p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void startEdit(resume.id)}
-                          className="flex-1 text-left"
-                        >
-                          <span className="block text-base font-bold text-slate-900">
-                            {resume.label}
-                          </span>
-                          <span className="mt-0.5 block text-sm text-slate-500">
-                            {resume.characterCount.toLocaleString()} characters ·{' '}
-                            {formatRelative(resume.updatedAtUtc)}
-                          </span>
-                        </button>
-                        {resume.isActive && (
-                          <span className="shrink-0 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-brand-700 ring-1 ring-inset ring-brand-200">
-                            Active
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-3 flex gap-1">
-                        {!resume.isActive && (
-                          <button
-                            type="button"
-                            onClick={() => void makeActive(resume.id)}
-                            className="rounded-lg px-3 py-1.5 text-sm font-semibold text-brand-600 transition hover:bg-brand-50"
-                          >
-                            Make active
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setDeleteTarget(resume)}
-                          className="rounded-lg px-3 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </section>
-
-        <form
-          onSubmit={save}
-          className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
-            <h2 className="text-lg font-bold text-slate-900">
-              {editingId ? 'Edit resume' : 'New resume'}
-            </h2>
-            <div className="flex items-center gap-3">
-              {justSaved && (
-                <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                  Saved
-                </span>
-              )}
-              <label
-                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-2 border-dashed border-brand-300 bg-brand-50/50 px-3 py-1.5 text-sm font-semibold text-brand-700 transition hover:border-brand-400 hover:bg-brand-50 ${
-                  uploading ? 'pointer-events-none opacity-60' : ''
-                }`}
-              >
-                {uploading ? 'Reading file…' : 'Upload PDF or Word doc'}
-                <input
-                  type="file"
-                  accept=".pdf,.docx"
-                  disabled={uploading}
-                  className="sr-only"
-                  onChange={(e) => {
-                    void handleUpload(e.target.files?.[0])
-                    e.target.value = ''
-                  }}
-                />
-              </label>
-            </div>
-          </div>
-
-          {uploadError && (
-            <p className="mx-6 mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
-              {uploadError}
-            </p>
-          )}
-
-          <div className="p-6">
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-semibold text-slate-700">Label *</span>
+    <>
+      <div className="space-y-4">
+        <PageHeader
+          title="Resumes"
+          description="The active one is what new match scores are calculated against."
+          actions={
+            <>
               <input
-                className={inputClass}
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="e.g. Backend-focused, Feb 2026"
-                required
-                maxLength={200}
+                ref={fileRef}
+                type="file"
+                accept=".pdf,.docx"
+                className="sr-only"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ''
+                  guard(() => handleUpload(file))
+                }}
               />
-            </label>
+              <Button
+                icon={<Upload className="size-4" aria-hidden />}
+                loading={upload.busy}
+                onClick={() => fileRef.current?.click()}
+              >
+                Upload file
+              </Button>
+              <Button variant="primary" onClick={() => guard(startNew)}>
+                New resume
+              </Button>
+            </>
+          }
+        />
 
-            <label className="mt-5 block">
-              <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                Resume text *
-              </span>
-              <textarea
-                className={`${inputClass} font-mono text-sm leading-relaxed`}
-                rows={20}
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="Paste the full text of your resume — experience, skills, education."
-                required
+        {error && <Banner>{error}</Banner>}
+        {upload.error && <Banner>{upload.error}</Banner>}
+
+        <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+          <section aria-label="Saved resumes">
+            {loading ? (
+              <LoadingState />
+            ) : resumes.length === 0 ? (
+              <EmptyState
+                title="No resumes yet"
+                description="Upload a PDF or Word doc, or paste the text in, to unlock match scoring."
               />
-            </label>
-          </div>
+            ) : (
+              <ul className="space-y-2">
+                {resumes.map((resume) => (
+                  <ResumeRow
+                    key={resume.id}
+                    resume={resume}
+                    selected={editingId === resume.id}
+                    onOpen={() => guard(() => void startEdit(resume.id))}
+                    onMakeActive={() => void makeActive(resume)}
+                    onDelete={() => setDeleteTarget(resume)}
+                  />
+                ))}
+              </ul>
+            )}
+          </section>
 
-          <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
-            <span className={`text-sm font-medium ${tooShort ? 'text-rose-600' : 'text-slate-500'}`}>
-              {tooShort
-                ? `At least ${MIN_CONTENT} characters needed to score against a job description.`
-                : `${trimmed.toLocaleString()} characters`}
-            </span>
-            <button
-              type="submit"
-              disabled={saving || tooShort}
-              className="brand-gradient rounded-xl px-6 py-2.5 text-base font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:opacity-95 disabled:opacity-50"
-            >
-              {saving ? 'Saving…' : editingId ? 'Save changes' : 'Save resume'}
-            </button>
+          <div ref={editorRef}>
+            <Card>
+              <form onSubmit={submit} className="space-y-4">
+                <h2 className="text-base font-semibold text-fg">
+                  {editingId ? 'Edit resume' : 'New resume'}
+                </h2>
+
+                <Field label="Label">
+                  {(props) => (
+                    <Input
+                      {...props}
+                      value={label}
+                      onChange={(e) => setLabel(e.target.value)}
+                      placeholder="e.g. Backend-focused, Feb 2026"
+                      required
+                      maxLength={200}
+                    />
+                  )}
+                </Field>
+
+                <Field
+                  label="Resume text"
+                  error={
+                    tooShort
+                      ? `At least ${MIN_CONTENT} characters are needed to score against a job description.`
+                      : null
+                  }
+                  hint={`${trimmed.toLocaleString()} characters`}
+                >
+                  {(props) => (
+                    <Textarea
+                      {...props}
+                      monospace
+                      rows={20}
+                      value={content}
+                      onChange={(e) => setContent(e.target.value)}
+                      placeholder="Paste the full text of your resume — experience, skills, education."
+                      required
+                    />
+                  )}
+                </Field>
+
+                {save.error && <Banner>{save.error}</Banner>}
+
+                <div className="flex justify-end">
+                  {/* Disabled until something actually changed, so the button
+                      stops inviting saves that would be no-ops. */}
+                  <Button
+                    variant="primary"
+                    type="submit"
+                    loading={save.busy}
+                    disabled={!dirty || tooShort}
+                  >
+                    {editingId ? 'Save changes' : 'Save resume'}
+                  </Button>
+                </div>
+              </form>
+            </Card>
           </div>
-        </form>
+        </div>
       </div>
+
+      {pending && (
+        <ConfirmDialog
+          title="Discard changes?"
+          body="Your edits to this resume haven't been saved and will be lost."
+          confirmLabel="Discard"
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            pending()
+            setPending(null)
+          }}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -323,11 +304,82 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
           body={`This permanently removes “${deleteTarget.label}”. Resumes with existing match scores can't be deleted.`}
           confirmLabel="Delete resume"
           busyLabel="Deleting…"
-          busy={deleting}
-          onConfirm={() => void confirmDelete()}
+          busy={deletion.busy}
+          error={deletion.error}
+          onConfirm={confirmDelete}
           onCancel={() => setDeleteTarget(null)}
         />
       )}
-    </div>
+    </>
+  )
+}
+
+function ResumeRow({
+  resume,
+  selected,
+  onOpen,
+  onMakeActive,
+  onDelete,
+}: {
+  resume: ResumeSummary
+  selected: boolean
+  onOpen: () => void
+  onMakeActive: () => void
+  onDelete: () => void
+}) {
+  const menuRef = useRef<HTMLButtonElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  return (
+    <li
+      className={`rounded-surface border bg-surface transition-colors ${
+        selected ? 'border-accent' : 'border-line hover:bg-surface-muted'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2 p-3">
+        <button type="button" onClick={onOpen} className="min-w-0 flex-1 rounded-sm text-left">
+          <span className="flex items-center gap-2">
+            <span className="truncate text-sm font-medium text-fg">{resume.label}</span>
+            {resume.isActive && <Badge emphasis="accent">Active</Badge>}
+          </span>
+          <span className="mt-0.5 block text-xs text-fg-muted">
+            {resume.characterCount.toLocaleString()} characters · {formatRelative(resume.updatedAtUtc)}
+          </span>
+        </button>
+
+        <IconButton
+          ref={menuRef}
+          label={`Actions for ${resume.label}`}
+          icon={<MoreHorizontal className="size-4" aria-hidden />}
+          onClick={() => setMenuOpen((v) => !v)}
+        />
+        {menuOpen && (
+          <Menu
+            anchorRef={menuRef}
+            label={`Actions for ${resume.label}`}
+            onClose={() => setMenuOpen(false)}
+            items={[
+              ...(resume.isActive
+                ? []
+                : [
+                    {
+                      key: 'active',
+                      label: 'Set as active',
+                      icon: <Star className="size-4" aria-hidden />,
+                      onSelect: onMakeActive,
+                    },
+                  ]),
+              {
+                key: 'delete',
+                label: 'Delete resume',
+                icon: <Trash2 className="size-4" aria-hidden />,
+                destructive: true,
+                onSelect: onDelete,
+              },
+            ]}
+          />
+        )}
+      </div>
+    </li>
   )
 }
