@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { ArrowRight, RefreshCw } from 'lucide-react'
 import type {
-  AutoApplied,
   InterviewKind,
   SuggestedNewApplication,
   SuggestedStatusUpdate,
@@ -10,12 +9,16 @@ import { STATUS_LABELS } from '../lib/status'
 import { formatRelative, fromDateTimeLocalValue, toDateTimeLocalValue } from '../lib/format'
 import { useAsyncAction } from '../lib/useAsyncAction'
 import type { GmailConnection } from '../lib/useGmailConnection'
+import { ActivityFeed } from './ActivityFeed'
 import { Button, Card, Checkbox, EmptyState, Input, LoadingState, Modal, StatusBadge } from './ui'
 
 interface Props {
   gmail: GmailConnection
   /** Opens the Add application form pre-filled from a suggestion. */
   onAddNewApplication: (suggestion: SuggestedNewApplication) => void
+  dataVersion: number
+  onDataChanged: () => void
+  onOpenJob: (applicationId: string) => void
   onClose: () => void
 }
 
@@ -182,28 +185,6 @@ function NewApplicationCard({
   )
 }
 
-function AutoAppliedCard({ confirmation }: { confirmation: AutoApplied }) {
-  return (
-    <Card>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-fg">{confirmation.companyName}</p>
-          <p className="text-sm text-fg-muted">{confirmation.roleTitle}</p>
-        </div>
-        <Transition from="Preparing" to="Applied" />
-      </div>
-
-      <p className="mt-3 text-sm leading-relaxed text-fg-muted">{confirmation.reasoning}</p>
-
-      <EmailMeta
-        subject={confirmation.emailSubject}
-        from={confirmation.emailFrom}
-        receivedAtUtc={confirmation.emailReceivedAtUtc}
-      />
-    </Card>
-  )
-}
-
 function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
     <section>
@@ -219,7 +200,14 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
  * applications table's toolbar into the header. Closing it no longer loses
  * anything: updates stay on the server until they're accepted or dismissed.
  */
-export function EmailUpdatesModal({ gmail, onAddNewApplication, onClose }: Props) {
+export function EmailUpdatesModal({
+  gmail,
+  onAddNewApplication,
+  dataVersion,
+  onDataChanged,
+  onOpenJob,
+  onClose,
+}: Props) {
   const { status, updates } = gmail
   // Until the first status call resolves, "not connected" would be a guess —
   // and one that offers to send you through OAuth you don't need.
@@ -227,13 +215,12 @@ export function EmailUpdatesModal({ gmail, onAddNewApplication, onClose }: Props
   const connected = status?.connected === true
   const statusUpdates = updates?.statusUpdates ?? []
   const newApplications = updates?.newApplications ?? []
-  const autoApplied = updates?.autoApplied ?? []
-  const total = statusUpdates.length + newApplications.length + autoApplied.length
+  const total = statusUpdates.length + newApplications.length
 
   return (
     <Modal
       title="Email updates"
-      description="Found in your recent email — review each one before it's applied."
+      description="Clear-cut updates from your email are applied for you and can be undone. Anything less certain waits here for you to decide."
       error={gmail.checkError}
       onClose={onClose}
       footerStart={
@@ -267,19 +254,10 @@ export function EmailUpdatesModal({ gmail, onAddNewApplication, onClose }: Props
           description="Connect it and Career Connect reads your recent mail for application updates, and can put interviews on your Google Calendar."
           action={<Button onClick={() => void gmail.connect()}>Connect Gmail</Button>}
         />
-      ) : total === 0 ? (
-        <EmptyState title="All caught up" description="Nothing is waiting for review." />
       ) : (
         <div className="space-y-6">
-          {autoApplied.length > 0 && (
-            <Section
-              title="Confirmed as applied"
-              hint="You were prepping these and the company confirmed they got your application, so they've already moved. Nothing to do."
-            >
-              {autoApplied.map((confirmation) => (
-                <AutoAppliedCard key={confirmation.applicationId} confirmation={confirmation} />
-              ))}
-            </Section>
+          {total === 0 && (
+            <EmptyState title="All caught up" description="Nothing is waiting for review." />
           )}
 
           {newApplications.length > 0 && (
@@ -307,6 +285,15 @@ export function EmailUpdatesModal({ gmail, onAddNewApplication, onClose }: Props
               ))}
             </Section>
           )}
+
+          <ActivityFeed
+            dataVersion={dataVersion}
+            onDataChanged={onDataChanged}
+            onOpenJob={(applicationId) => {
+              onClose()
+              onOpenJob(applicationId)
+            }}
+          />
         </div>
       )}
     </Modal>

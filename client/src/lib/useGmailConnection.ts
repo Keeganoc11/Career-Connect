@@ -142,8 +142,12 @@ export function useGmailConnection(onApplicationsChanged: () => void): GmailConn
       if (found === 0) {
         toast.info('No new updates found.')
       } else if (result.autoApplied.length > 0) {
-        // Auto-applied confirmations already changed status server-side.
+        // Clear-cut updates already changed status server-side.
         onApplicationsChanged()
+        const count = result.autoApplied.length
+        toast.info(
+          `${count === 1 ? '1 clear-cut update was' : `${count} clear-cut updates were`} applied for you. Undo any under “Done for you”.`,
+        )
       }
     } catch (e) {
       setCheckError(errorMessage(e))

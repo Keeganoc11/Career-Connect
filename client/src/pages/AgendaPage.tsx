@@ -6,6 +6,8 @@ import { formatDateTime, formatUntil } from '../lib/format'
 import { KIND_LABELS } from '../lib/interviews'
 import { errorMessage } from '../lib/errors'
 import type { TrackerIntentRequest } from '../lib/trackerIntent'
+import { ActivityFeed } from '../components/ActivityFeed'
+import { FollowUpModal } from '../components/FollowUpModal'
 import { PipelineReview } from '../components/PipelineReview'
 import {
   Badge,
@@ -42,6 +44,8 @@ const NUDGE_ACTIONS: Record<
     request?: (applicationId: string) => TrackerIntentRequest
     /** Goes to the job's page instead. */
     openJob?: boolean
+    /** Drafts a follow-up email right here. */
+    followUp?: boolean
   }
 > = {
   ReadyToApply: { icon: Send, label: 'Open', openJob: true },
@@ -51,7 +55,7 @@ const NUDGE_ACTIONS: Record<
     label: 'Schedule interview',
     request: (id) => ({ kind: 'interviews', applicationId: id }),
   },
-  Silent: { icon: Clock, label: 'Open', openJob: true },
+  Silent: { icon: Clock, label: 'Draft follow-up', followUp: true },
   ProbablyGhosted: { icon: Archive, label: 'Mark as ghosted' },
 }
 
@@ -60,6 +64,7 @@ export function AgendaPage({ dataVersion, onOpenJob, onIntent, onDataChanged }: 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [ghostingId, setGhostingId] = useState<string | null>(null)
+  const [followUpTarget, setFollowUpTarget] = useState<AgendaNudge | null>(null)
 
   // Signing out on a 401 is handled once, inside api/client.
   const handleError = useCallback((e: unknown) => setError(errorMessage(e)), [])
@@ -99,7 +104,7 @@ export function AgendaPage({ dataVersion, onOpenJob, onIntent, onDataChanged }: 
 
   return (
     <div className="space-y-8">
-      <PageHeader title="Agenda" description="What's coming up, and what needs a nudge." />
+      <PageHeader title="Agenda" description="What's coming up, what needs a nudge, and what was handled for you." />
 
       {error && (
         <Banner
@@ -152,6 +157,7 @@ export function AgendaPage({ dataVersion, onOpenJob, onIntent, onDataChanged }: 
                   busy={ghostingId === nudge.applicationId}
                   onIntent={onIntent}
                   onOpenJob={onOpenJob}
+                  onFollowUp={() => setFollowUpTarget(nudge)}
                   onMarkGhosted={() => void markGhosted(nudge)}
                 />
               ))}
@@ -160,9 +166,24 @@ export function AgendaPage({ dataVersion, onOpenJob, onIntent, onDataChanged }: 
         </section>
       )}
 
+      <ActivityFeed dataVersion={dataVersion} onDataChanged={onDataChanged} onOpenJob={onOpenJob} />
+
       <PipelineReview
         onOpenApplication={onOpenJob}
       />
+
+      {followUpTarget && (
+        <FollowUpModal
+          applicationId={followUpTarget.applicationId}
+          companyName={followUpTarget.companyName}
+          roleTitle={followUpTarget.roleTitle}
+          onSent={() => {
+            void refresh()
+            onDataChanged()
+          }}
+          onClose={() => setFollowUpTarget(null)}
+        />
+      )}
     </div>
   )
 }
@@ -227,12 +248,14 @@ function NudgeRow({
   busy,
   onIntent,
   onOpenJob,
+  onFollowUp,
   onMarkGhosted,
 }: {
   nudge: AgendaNudge
   busy: boolean
   onIntent: (request: TrackerIntentRequest) => void
   onOpenJob: (applicationId: string) => void
+  onFollowUp: () => void
   onMarkGhosted: () => void
 }) {
   const action = NUDGE_ACTIONS[nudge.kind] ?? NUDGE_ACTIONS.Silent
@@ -252,7 +275,8 @@ function NudgeRow({
         loading={busy}
         onClick={() => {
           const request = action.request?.(nudge.applicationId)
-          if (action.openJob) onOpenJob(nudge.applicationId)
+          if (action.followUp) onFollowUp()
+          else if (action.openJob) onOpenJob(nudge.applicationId)
           else if (request) onIntent(request)
           else onMarkGhosted()
         }}

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { api, ApiError } from '../api/client'
 import type { Application, ApplicationStatus, PrepRun, StatusChange } from '../api/types'
+import { FollowUpModal } from '../components/FollowUpModal'
 import { PrepProgress } from '../components/PrepProgress'
 import { StatusMenu } from '../components/StatusMenu'
 import { TailoringReview } from '../components/TailoringReview'
@@ -31,7 +32,7 @@ import {
   toast,
 } from '../components/ui'
 import { errorMessage } from '../lib/errors'
-import { formatDate, formatDateTime, formatUntil } from '../lib/format'
+import { formatDate, formatDateTime, formatRelative, formatUntil } from '../lib/format'
 import { KIND_LABELS } from '../lib/interviews'
 import { STATUS_LABELS } from '../lib/status'
 import type { TrackerIntentRequest } from '../lib/trackerIntent'
@@ -51,8 +52,12 @@ const POLL_INTERVAL_MS = 2500
 const SOURCE_LABELS: Record<string, string> = {
   Manual: 'You',
   EmailSuggestion: 'From an email you accepted',
-  EmailAutomatic: 'From an email',
+  EmailAutomatic: 'Automatically, from an email',
+  Inactivity: 'Automatically, after a long silence',
 }
+
+/** Past the application and waiting on them — the only stages a follow-up makes sense for. */
+const FOLLOW_UP_STATUSES: ApplicationStatus[] = ['Applied', 'PhoneScreen', 'Interview']
 
 /**
  * Everything about one job in one place. It replaces the prep, match score and
@@ -67,6 +72,7 @@ export function JobPage({ applicationId, dataVersion, onBack, onIntent, onDataCh
   const [missing, setMissing] = useState(false)
   const [request, setRequest] = useState('')
   const [confirmStartOver, setConfirmStartOver] = useState(false)
+  const [followingUp, setFollowingUp] = useState(false)
 
   const start = useAsyncAction()
   const applied = useAsyncAction()
@@ -182,6 +188,9 @@ export function JobPage({ applicationId, dataVersion, onBack, onIntent, onDataCh
               <span className="tabular-nums">
                 {application.status === 'Preparing' ? 'Added' : 'Applied'} {formatDate(application.dateApplied)}
               </span>
+              {application.lastFollowUpAtUtc && (
+                <span>Followed up {formatRelative(application.lastFollowUpAtUtc)}</span>
+              )}
               {application.jobPostingUrl && (
                 <TextLink href={application.jobPostingUrl} external>
                   Job posting
@@ -200,6 +209,9 @@ export function JobPage({ applicationId, dataVersion, onBack, onIntent, onDataCh
               >
                 I applied
               </Button>
+            )}
+            {FOLLOW_UP_STATUSES.includes(application.status) && (
+              <Button onClick={() => setFollowingUp(true)}>Draft follow-up</Button>
             )}
             <JobActions application={application} onIntent={onIntent} />
           </div>
@@ -366,6 +378,19 @@ export function JobPage({ applicationId, dataVersion, onBack, onIntent, onDataCh
           <Timeline history={application.statusHistory} />
         )}
       </div>
+
+      {followingUp && (
+        <FollowUpModal
+          applicationId={applicationId}
+          companyName={application.companyName}
+          roleTitle={application.roleTitle}
+          onSent={() => {
+            void load()
+            onDataChanged()
+          }}
+          onClose={() => setFollowingUp(false)}
+        />
+      )}
 
       {confirmStartOver && (
         <ConfirmDialog

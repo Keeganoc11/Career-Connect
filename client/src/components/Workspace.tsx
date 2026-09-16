@@ -139,6 +139,9 @@ export function Workspace({ onSignOut }: { onSignOut: () => void }) {
         <EmailUpdatesModal
           gmail={gmail}
           onAddNewApplication={reviewNewApplication}
+          dataVersion={dataVersion}
+          onDataChanged={bumpData}
+          onOpenJob={openJob}
           onClose={() => setEmailUpdatesOpen(false)}
         />
       )}

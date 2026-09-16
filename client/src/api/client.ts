@@ -1,4 +1,5 @@
 import type {
+  ActivityItem,
   Agenda,
   Application,
   ApplicationInput,
@@ -6,6 +7,7 @@ import type {
   CaptureJobInput,
   CaptureJobResult,
   CopilotInsights,
+  FollowUpDraft,
   GmailConnectionStatus,
   GmailScanResult,
   InterviewEvent,
@@ -438,6 +440,24 @@ export const api = {
 
   disconnectGmail() {
     return request<void>('/api/gmail/connection', { method: 'DELETE' })
+  },
+
+  /** Changes the app made on its own recently, newest first. */
+  listActivity(days = 14) {
+    return request<ActivityItem[]>(`/api/activity?days=${days}`)
+  },
+
+  undoActivity(activityId: string) {
+    return request<ActivityItem>(`/api/activity/${activityId}/undo`, { method: 'POST' })
+  },
+
+  /** A follow-up email to copy and send yourself — nothing is sent from the app. */
+  draftFollowUp(applicationId: string) {
+    return request<FollowUpDraft>(`/api/applications/${applicationId}/follow-up`, { method: 'POST' })
+  },
+
+  markFollowedUp(applicationId: string) {
+    return request<Application>(`/api/applications/${applicationId}/followed-up`, { method: 'POST' })
   },
 
   scanGmail() {

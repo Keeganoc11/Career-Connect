@@ -83,6 +83,8 @@ export interface Application {
   jobDescriptionText: string | null
   tailoredResumeText: string | null
   coverLetterText: string | null
+  /** When you last said you sent a follow-up. */
+  lastFollowUpAtUtc: string | null
   createdAtUtc: string
   updatedAtUtc: string
   statusHistory?: StatusChange[] | null
@@ -258,12 +260,43 @@ export interface SuggestedNewApplication {
 
 export interface AutoApplied {
   applicationId: string
+  /** The activity that can undo it. Absent on updates found before undo existed. */
+  activityId?: string | null
+  fromStatus: ApplicationStatus
+  toStatus: ApplicationStatus
   companyName: string
   roleTitle: string
   reasoning: string
   emailSubject: string
   emailFrom: string
   emailReceivedAtUtc: string
+}
+
+export type ActivityTrigger = 'Email' | 'Inactivity'
+
+/** A change the app made on its own. */
+export interface ActivityItem {
+  id: string
+  applicationId: string
+  companyName: string
+  roleTitle: string
+  trigger: ActivityTrigger
+  fromStatus: ApplicationStatus
+  toStatus: ApplicationStatus
+  interviewAtUtc: string | null
+  interviewKind: InterviewKind | null
+  reasoning: string | null
+  emailSubject: string | null
+  emailFrom: string | null
+  emailReceivedAtUtc: string | null
+  createdAtUtc: string
+  undoneAtUtc: string | null
+  canUndo: boolean
+}
+
+export interface FollowUpDraft {
+  subject: string
+  body: string
 }
 
 export interface GmailScanResult {
