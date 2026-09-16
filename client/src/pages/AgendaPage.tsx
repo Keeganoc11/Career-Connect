@@ -1,109 +1,75 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Archive, CalendarClock, Clock, FileText, Send } from 'lucide-react'
 import { api } from '../api/client'
-import type { Agenda, AgendaNudge, InterviewKind, NudgeKind, UpcomingInterview } from '../api/types'
+import type { Agenda, AgendaNudge, NudgeKind, UpcomingInterview } from '../api/types'
 import { formatDateTime, formatUntil } from '../lib/format'
+import { KIND_LABELS } from '../lib/interviews'
 import { errorMessage } from '../lib/errors'
-
-const KIND_LABELS: Record<InterviewKind, string> = {
-  PhoneScreen: 'Phone screen',
-  Technical: 'Technical',
-  Onsite: 'Onsite',
-  Final: 'Final round',
-  Other: 'Interview',
-}
-
-/** Tone carries the urgency, so a glance down the list reads as a priority order. */
-const NUDGE_STYLES: Record<NudgeKind, { icon: string; ring: string; text: string }> = {
-  ReadyToApply: { icon: '🚀', ring: 'ring-emerald-600/20 bg-emerald-50', text: 'text-emerald-900' },
-  AwaitingYou: { icon: '⏳', ring: 'ring-brand-600/20 bg-brand-50', text: 'text-brand-900' },
-  Silent: { icon: '📭', ring: 'ring-slate-300 bg-white', text: 'text-slate-800' },
-  ProbablyGhosted: { icon: '👻', ring: 'ring-slate-300 bg-slate-50', text: 'text-slate-600' },
-  NeverPrepped: { icon: '📝', ring: 'ring-slate-300 bg-white', text: 'text-slate-800' },
-}
+import type { TrackerIntentRequest } from '../lib/trackerIntent'
+import { PipelineReview } from '../components/PipelineReview'
+import {
+  Badge,
+  Banner,
+  Button,
+  Card,
+  EmptyState,
+  LoadingState,
+  PageHeader,
+  toast,
+} from '../components/ui'
 
 interface Props {
   dataVersion: number
-  onOpenTracker: () => void
+  /** Opens one of the tracker's dialogs over whichever page is showing. */
+  onIntent: (request: TrackerIntentRequest) => void
+  /** Something here changed an application, so every page should refetch. */
+  onDataChanged: () => void
 }
 
-function InterviewCard({ interview }: { interview: UpcomingInterview }) {
-  const soon = new Date(interview.scheduledAtUtc).getTime() - Date.now() < 48 * 3_600_000
+const SOON_MS = 48 * 3_600_000
 
-  return (
-    <li
-      className={`rounded-2xl bg-white p-5 shadow-sm ring-1 ${
-        soon ? 'ring-2 ring-fuchsia-400' : 'ring-slate-200'
-      }`}
-    >
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-lg font-bold text-slate-900">{interview.companyName}</p>
-        <p className={`text-sm font-bold ${soon ? 'text-fuchsia-700' : 'text-slate-500'}`}>
-          {formatUntil(interview.scheduledAtUtc)}
-        </p>
-      </div>
-      <p className="mt-0.5 text-sm text-slate-500">{interview.roleTitle}</p>
-      <p className="mt-2 text-sm font-semibold text-slate-700">
-        {KIND_LABELS[interview.kind]} · {formatDateTime(interview.scheduledAtUtc)}
-      </p>
-      {interview.notes && (
-        <p className="mt-2 text-sm whitespace-pre-wrap text-slate-600">{interview.notes}</p>
-      )}
-      <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
-        {interview.onCalendar && (
-          <span className="rounded-full bg-sky-50 px-2.5 py-0.5 text-sky-800 ring-1 ring-sky-600/20 ring-inset">
-            On your calendar
-          </span>
-        )}
-        {/* Unprepped only reads as urgent once the interview is close — this is
-            the one place that says so, rather than repeating it as a nudge. */}
-        <span
-          className={`rounded-full px-2.5 py-0.5 ring-1 ring-inset ${
-            interview.hasPrep
-              ? 'bg-emerald-50 text-emerald-800 ring-emerald-600/20'
-              : soon
-                ? 'bg-amber-100 text-amber-900 ring-amber-600/40'
-                : 'bg-slate-50 text-slate-600 ring-slate-300'
-          }`}
-        >
-          {interview.hasPrep ? 'Prep ready' : soon ? '⚠️ No prep yet' : 'No prep yet'}
-        </span>
-      </div>
-    </li>
-  )
+/**
+ * One action per nudge, done from here. Every nudge used to be a button that
+ * just switched to the applications tab and left you to find the row again.
+ */
+const NUDGE_ACTIONS: Record<
+  NudgeKind,
+  {
+    icon: typeof Clock
+    label: string
+    /** Absent when the action happens here instead of opening a dialog. */
+    request?: (applicationId: string) => TrackerIntentRequest
+  }
+> = {
+  ReadyToApply: {
+    icon: Send,
+    label: 'Review prep',
+    request: (id) => ({ kind: 'prep', applicationId: id }),
+  },
+  NeverPrepped: {
+    icon: FileText,
+    label: 'Start prep',
+    request: (id) => ({ kind: 'prep', applicationId: id }),
+  },
+  AwaitingYou: {
+    icon: CalendarClock,
+    label: 'Schedule interview',
+    request: (id) => ({ kind: 'interviews', applicationId: id }),
+  },
+  Silent: { icon: Clock, label: 'Open', request: (id) => ({ kind: 'open', applicationId: id }) },
+  ProbablyGhosted: { icon: Archive, label: 'Mark as ghosted' },
 }
 
-function NudgeRow({ nudge, onOpen }: { nudge: AgendaNudge; onOpen: () => void }) {
-  const style = NUDGE_STYLES[nudge.kind]
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={onOpen}
-        className={`flex w-full items-start gap-3 rounded-2xl px-5 py-4 text-left shadow-sm ring-1 transition hover:shadow-md ${style.ring}`}
-      >
-        <span aria-hidden className="text-lg leading-none">
-          {style.icon}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block font-bold text-slate-900">
-            {nudge.companyName} <span className="font-medium text-slate-500">· {nudge.roleTitle}</span>
-          </span>
-          <span className={`mt-0.5 block text-sm ${style.text}`}>{nudge.message}</span>
-        </span>
-      </button>
-    </li>
-  )
-}
-
-export function AgendaPage({ dataVersion, onOpenTracker }: Props) {
+export function AgendaPage({ dataVersion, onIntent, onDataChanged }: Props) {
   const [agenda, setAgenda] = useState<Agenda | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [ghostingId, setGhostingId] = useState<string | null>(null)
+
   // Signing out on a 401 is handled once, inside api/client.
   const handleError = useCallback((e: unknown) => setError(errorMessage(e)), [])
 
   const refresh = useCallback(async () => {
-    setLoading(true)
     try {
       setAgenda(await api.getAgenda())
       setError(null)
@@ -119,66 +85,181 @@ export function AgendaPage({ dataVersion, onOpenTracker }: Props) {
     void refresh()
   }, [refresh, dataVersion])
 
+  const markGhosted = async (nudge: AgendaNudge) => {
+    setGhostingId(nudge.applicationId)
+    try {
+      await api.updateStatus(nudge.applicationId, 'Ghosted')
+      await refresh()
+      onDataChanged()
+      toast.success(`${nudge.companyName} marked as ghosted.`)
+    } catch (e) {
+      toast.error(errorMessage(e) ?? 'Could not update that application.')
+    } finally {
+      setGhostingId(null)
+    }
+  }
+
   const nothingToDo =
-    agenda && agenda.upcomingInterviews.length === 0 && agenda.nudges.length === 0
+    agenda !== null && agenda.upcomingInterviews.length === 0 && agenda.nudges.length === 0
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Agenda</h1>
-        <p className="mt-1.5 text-base text-slate-500">
-          What's coming up, and what's gone quiet.
-        </p>
-      </div>
+      <PageHeader title="Agenda" description="What's coming up, and what needs a nudge." />
 
       {error && (
-        <p className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-rose-700">{error}</p>
+        <Banner
+          action={
+            <Button
+              size="sm"
+              onClick={() => {
+                setLoading(true)
+                void refresh()
+              }}
+            >
+              Try again
+            </Button>
+          }
+        >
+          {error}
+        </Banner>
       )}
 
-      {loading && !agenda && <p className="text-slate-500">Loading…</p>}
+      {loading && !agenda && <LoadingState />}
 
       {nothingToDo && (
-        <div className="rounded-2xl border-2 border-dashed border-slate-300 px-6 py-12 text-center">
-          <p className="text-lg font-semibold text-slate-700">Nothing needs you right now.</p>
-          <p className="mt-1.5 text-slate-500">
-            No interviews booked and nothing has gone stale.{' '}
-            <button
-              type="button"
-              onClick={onOpenTracker}
-              className="font-semibold text-brand-600 hover:underline"
-            >
-              Add an application
-            </button>{' '}
-            to get going.
-          </p>
-        </div>
+        <EmptyState
+          title="Nothing needs you right now"
+          description="No interviews booked and nothing has gone stale."
+          action={<Button onClick={() => onIntent({ kind: 'new' })}>Add an application</Button>}
+        />
       )}
 
       {agenda && agenda.upcomingInterviews.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-bold tracking-wide text-slate-500 uppercase">
-            Coming up
-          </h2>
-          <ul className="grid gap-4 sm:grid-cols-2">
+        <section>
+          <h2 className="mb-2 text-base font-semibold text-fg">Coming up</h2>
+          <ul className="grid gap-3 sm:grid-cols-2">
             {agenda.upcomingInterviews.map((interview) => (
-              <InterviewCard key={interview.interviewId} interview={interview} />
+              <InterviewCard key={interview.interviewId} interview={interview} onIntent={onIntent} />
             ))}
           </ul>
         </section>
       )}
 
       {agenda && agenda.nudges.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-bold tracking-wide text-slate-500 uppercase">
-            Needs attention
-          </h2>
-          <ul className="space-y-2">
-            {agenda.nudges.map((nudge) => (
-              <NudgeRow key={nudge.applicationId} nudge={nudge} onOpen={onOpenTracker} />
-            ))}
-          </ul>
+        <section>
+          <h2 className="mb-2 text-base font-semibold text-fg">Needs attention</h2>
+          <Card padded={false}>
+            <ul className="divide-y divide-line">
+              {agenda.nudges.map((nudge) => (
+                <NudgeRow
+                  key={nudge.applicationId}
+                  nudge={nudge}
+                  busy={ghostingId === nudge.applicationId}
+                  onIntent={onIntent}
+                  onMarkGhosted={() => void markGhosted(nudge)}
+                />
+              ))}
+            </ul>
+          </Card>
         </section>
       )}
+
+      <PipelineReview
+        onOpenApplication={(applicationId) => onIntent({ kind: 'open', applicationId })}
+      />
     </div>
+  )
+}
+
+function InterviewCard({
+  interview,
+  onIntent,
+}: {
+  interview: UpcomingInterview
+  onIntent: (request: TrackerIntentRequest) => void
+}) {
+  const soon = new Date(interview.scheduledAtUtc).getTime() - Date.now() < SOON_MS
+
+  return (
+    <li>
+      <Card raised>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-sm font-medium text-fg">{interview.companyName}</p>
+          <p className="text-xs text-fg-muted">{formatUntil(interview.scheduledAtUtc)}</p>
+        </div>
+        <p className="text-sm text-fg-muted">{interview.roleTitle}</p>
+        <p className="mt-2 text-sm text-fg">
+          {KIND_LABELS[interview.kind]} · {formatDateTime(interview.scheduledAtUtc)}
+        </p>
+
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {/* Only urgent once it's close — said here rather than repeated as a
+              separate nudge, which duplicated the card. */}
+          {soon && <Badge emphasis="interview">Soon</Badge>}
+          {interview.onCalendar && <Badge>On Google Calendar</Badge>}
+          <Badge>{interview.hasPrep ? 'Prep ready' : 'No prep yet'}</Badge>
+        </div>
+
+        {interview.notes && (
+          <p className="mt-2 whitespace-pre-wrap text-sm text-fg-muted">{interview.notes}</p>
+        )}
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant={interview.hasPrep ? 'secondary' : 'primary'}
+            onClick={() =>
+              onIntent({ kind: 'interviewPrep', applicationId: interview.applicationId })
+            }
+          >
+            {interview.hasPrep ? 'View interview prep' : 'Prepare'}
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => onIntent({ kind: 'interviews', applicationId: interview.applicationId })}
+          >
+            Details
+          </Button>
+        </div>
+      </Card>
+    </li>
+  )
+}
+
+function NudgeRow({
+  nudge,
+  busy,
+  onIntent,
+  onMarkGhosted,
+}: {
+  nudge: AgendaNudge
+  busy: boolean
+  onIntent: (request: TrackerIntentRequest) => void
+  onMarkGhosted: () => void
+}) {
+  const action = NUDGE_ACTIONS[nudge.kind] ?? NUDGE_ACTIONS.Silent
+  const Icon = action.icon
+
+  return (
+    <li className="flex items-start gap-3 p-4">
+      <Icon className="mt-0.5 size-4 shrink-0 text-fg-subtle" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-fg">
+          {nudge.companyName} <span className="font-normal text-fg-muted">· {nudge.roleTitle}</span>
+        </p>
+        <p className="mt-0.5 text-sm text-fg-muted">{nudge.message}</p>
+      </div>
+      <Button
+        size="sm"
+        loading={busy}
+        onClick={() => {
+          const request = action.request?.(nudge.applicationId)
+          if (request) onIntent(request)
+          else onMarkGhosted()
+        }}
+      >
+        {action.label}
+      </Button>
+    </li>
   )
 }

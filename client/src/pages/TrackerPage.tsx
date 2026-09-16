@@ -4,7 +4,6 @@ import type {
   Application,
   ApplicationInput,
   ApplicationStatus,
-  CopilotInsights,
   GmailConnectionStatus,
   MatchResult,
   PrepRun,
@@ -20,7 +19,6 @@ import { PrepModal } from '../components/PrepModal'
 import { CoverLetterModal } from '../components/CoverLetterModal'
 import { InterviewPrepModal } from '../components/InterviewPrepModal'
 import { InterviewsModal } from '../components/InterviewsModal'
-import { CopilotPanel } from '../components/CopilotPanel'
 import { ConfirmDialog, toast } from '../components/ui'
 import { errorMessage } from '../lib/errors'
 import { useAsyncAction } from '../lib/useAsyncAction'
@@ -72,10 +70,6 @@ export function TrackerPage({
   const [fromPrefill, setFromPrefill] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Application | null>(null)
   const deletion = useAsyncAction()
-
-  const [copilotInsights, setCopilotInsights] = useState<CopilotInsights | null>(null)
-  const [copilotLoading, setCopilotLoading] = useState(false)
-  const [copilotError, setCopilotError] = useState<string | null>(null)
 
   // Signing out on a 401 is handled once, inside api/client; errorMessage
   // returns null for it, so nothing renders on the way out.
@@ -178,31 +172,6 @@ export function TrackerPage({
       clearInterval(timer)
     }
   }, [hasRunningPrep, refresh])
-
-  const getCopilotInsights = async () => {
-    setCopilotLoading(true)
-    setCopilotError(null)
-    try {
-      setCopilotInsights(await api.getCopilotInsights())
-    } catch (e) {
-      setCopilotError(errorMessage(e))
-    } finally {
-      setCopilotLoading(false)
-    }
-  }
-
-  const dismissCopilot = () => {
-    setCopilotInsights(null)
-    setCopilotError(null)
-  }
-
-  const openApplicationFromCopilot = (application: Application) => {
-    if (matches[application.id]) {
-      setMatchTarget(application)
-    } else {
-      setFormTarget(application)
-    }
-  }
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -357,16 +326,6 @@ export function TrackerPage({
         {summary && (
           <SummaryBar summary={summary} activeFilter={statusFilter} onFilterChange={setStatusFilter} />
         )}
-
-        <CopilotPanel
-          insights={copilotInsights}
-          loading={copilotLoading}
-          error={copilotError}
-          applications={applications}
-          onAnalyze={() => void getCopilotInsights()}
-          onDismiss={dismissCopilot}
-          onOpenApplication={openApplicationFromCopilot}
-        />
 
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative w-full max-w-sm">

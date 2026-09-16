@@ -1,6 +1,10 @@
 import { useCallback, useState } from 'react'
 import type { SuggestedNewApplication } from '../api/types'
-import { intent as makeIntent, type TrackerIntent } from '../lib/trackerIntent'
+import {
+  intent as makeIntent,
+  type TrackerIntent,
+  type TrackerIntentRequest,
+} from '../lib/trackerIntent'
 import { useGmailConnection } from '../lib/useGmailConnection'
 import { AppShell, type View } from './AppShell'
 import { EmailUpdatesModal } from './EmailUpdatesModal'
@@ -56,7 +60,13 @@ export function Workspace({ onSignOut }: { onSignOut: () => void }) {
       onSignOut={onSignOut}
     >
       <div hidden={view !== 'agenda'}>
-        <AgendaPage dataVersion={dataVersion} onOpenTracker={() => setView('tracker')} />
+        <AgendaPage
+          dataVersion={dataVersion}
+          // No tab switch: the tracker's dialogs portal to <body>, so they open
+          // over the agenda rather than dropping you onto another page.
+          onIntent={(request: TrackerIntentRequest) => setTrackerIntent(makeIntent(request))}
+          onDataChanged={bumpData}
+        />
       </div>
       <div hidden={view !== 'tracker'}>
         <TrackerPage
