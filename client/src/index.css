@@ -1,41 +1,123 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens.
+ *
+ * Components use the *role* tokens below (surface, fg, line, accent, …), never
+ * raw shades. Each role is defined once here, so a future dark theme only has to
+ * redefine the roles — under [data-theme="dark"] or prefers-color-scheme — and
+ * no component changes. Everything lives under --color-* so the utilities read
+ * bg-surface / text-fg-muted / border-line, and nothing collides with --text-*,
+ * which is Tailwind's font-size namespace.
+ */
 @theme {
-  --font-sans: "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
-  /* Brand ramp sampled from the logo: vivid purple through violet to blue. */
-  --color-brand-50: #f6f1ff;
-  --color-brand-100: #ece1ff;
-  --color-brand-200: #dbc7ff;
-  --color-brand-300: #c19eff;
-  --color-brand-400: #a56cfa;
-  --color-brand-500: #9333ea;
+  /* One hue, end to end: Tailwind's violet. 600 is unchanged from before; 500
+     used to be purple-600, which put a different hue in the middle of the ramp. */
+  --color-brand-50: #f5f3ff;
+  --color-brand-100: #ede9fe;
+  --color-brand-200: #ddd6fe;
+  --color-brand-300: #c4b5fd;
+  --color-brand-400: #a78bfa;
+  --color-brand-500: #8b5cf6;
   --color-brand-600: #7c3aed;
-  --color-brand-700: #6821d4;
-  --color-brand-800: #551bad;
-  --color-brand-900: #45188a;
+  --color-brand-700: #6d28d9;
+  --color-brand-800: #5b21b6;
+  --color-brand-900: #4c1d95;
+
+  /* Surfaces and text. */
+  --color-surface: #ffffff;
+  --color-surface-muted: var(--color-slate-50);
+  --color-line: var(--color-slate-200);
+  --color-line-strong: var(--color-slate-300);
+  --color-fg: var(--color-slate-900);
+  --color-fg-muted: var(--color-slate-600);
+  /* slate-500, not 400: 400 on white is under 3:1 and was carrying real information. */
+  --color-fg-subtle: var(--color-slate-500);
+
+  /* The single accent — for interaction only (primary actions, focus, the
+     active tab, links, selection). Never a status. */
+  --color-accent: var(--color-brand-600);
+  --color-accent-hover: var(--color-brand-700);
+  --color-accent-fg: #ffffff;
+  --color-accent-soft: var(--color-brand-50);
+
+  /* Feedback. Shown as banners, toasts and inline messages — never as chips, so
+     "Saved" can't be mistaken for an Offer. Base values pass 4.5:1 as text. */
+  --color-success: var(--color-emerald-700);
+  --color-success-soft: var(--color-emerald-50);
+  --color-warning: var(--color-amber-700);
+  --color-warning-soft: var(--color-amber-50);
+  --color-danger: var(--color-rose-700);
+  --color-danger-soft: var(--color-rose-50);
+  --color-info: var(--color-sky-700);
+  --color-info-soft: var(--color-sky-50);
+
+  /* Pipeline statuses, drawn as a dot beside the label — the label is always
+     there, so color is never the only signal. The palette stays clear of the
+     accent hue. Interview UI anywhere (row chip, "Soon", scheduling) uses the
+     Interview color. */
+  --color-status-preparing: var(--color-slate-500);
+  --color-status-applied: var(--color-blue-500);
+  --color-status-phone-screen: var(--color-cyan-500);
+  --color-status-interview: var(--color-teal-600);
+  --color-status-interview-soft: var(--color-teal-50);
+  --color-status-offer: var(--color-green-600);
+  --color-status-rejected: var(--color-red-500);
+  --color-status-ghosted: var(--color-slate-300);
+  --color-status-withdrawn: var(--color-stone-400);
+
+  /* Two radii: controls (buttons, inputs, chips) and surfaces (cards, dialogs). */
+  --radius-control: 0.5rem;
+  --radius-surface: 0.75rem;
+
+  /* Flat surfaces get a border, not a shadow. Raised is for cards that lift;
+     overlay is for dialogs and menus only. No colored glows. */
+  --shadow-raised: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --shadow-overlay: 0 16px 40px -12px rgb(15 23 42 / 0.25), 0 2px 8px -2px rgb(15 23 42 / 0.08);
 }
 
-html {
-  font-size: 16px;
+@layer base {
+  html {
+    font-size: 16px;
+    /* Reserve the scrollbar's space so locking scroll under a dialog doesn't shift the page. */
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    @apply bg-surface-muted text-fg antialiased;
+  }
+
+  ::selection {
+    background-color: var(--color-brand-200);
+  }
+
+  /*
+   * A visible keyboard focus ring for everything interactive. :where() keeps
+   * this at zero specificity, so any control that styles its own focus state
+   * still wins.
+   */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
 }
 
-body {
-  @apply bg-slate-50 text-slate-800 antialiased;
-}
-
-/* The signature gradient — purple top-left to blue bottom-right, as in the mark. */
+/*
+ * TEMP — remove in R8, once every component has moved to the new primitives.
+ * These flatten the legacy gradient classes everywhere at once, so no screen
+ * shows the old gradients next to the new look while the migration is in
+ * progress.
+ */
 .brand-gradient {
-  background-image: linear-gradient(135deg, #a21cf0 0%, #7c3aed 46%, #2563eb 100%);
+  background-color: var(--color-accent);
 }
 
 .brand-gradient-soft {
-  background-image: linear-gradient(135deg, #f6f1ff 0%, #f2eeff 50%, #eef2ff 100%);
+  background-color: var(--color-surface-muted);
 }
 
 .brand-text-gradient {
-  background-image: linear-gradient(120deg, #a21cf0 0%, #7c3aed 50%, #2563eb 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--color-accent);
 }
