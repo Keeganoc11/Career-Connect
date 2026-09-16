@@ -1,13 +1,15 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
+import { ArrowRight } from 'lucide-react'
 import type {
   AutoApplied,
   InterviewKind,
   SuggestedNewApplication,
   SuggestedStatusUpdate,
 } from '../api/types'
-import { STATUS_META } from '../lib/status'
+import { STATUS_LABELS } from '../lib/status'
 import { formatRelative, fromDateTimeLocalValue, toDateTimeLocalValue } from '../lib/format'
-import { ModalBackdrop, ModalHeader } from './Modal'
+import { useAsyncAction } from '../lib/useAsyncAction'
+import { Button, Card, Checkbox, EmptyState, Input, Modal, StatusBadge } from './ui'
 
 interface Props {
   statusUpdates: SuggestedStatusUpdate[]
@@ -23,29 +25,40 @@ interface Props {
   onClose: () => void
 }
 
-function StatusPill({ status }: { status: SuggestedStatusUpdate['currentStatus'] }) {
-  const meta = STATUS_META[status]
+function Transition({
+  from,
+  to,
+}: {
+  from: SuggestedStatusUpdate['currentStatus']
+  to: SuggestedStatusUpdate['currentStatus']
+}) {
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${meta.badge}`}>
-      <span className={`size-1.5 rounded-full ${meta.dot}`} aria-hidden />
-      {meta.label}
-    </span>
-  )
-}
-
-function EmailMeta({ subject, from, receivedAtUtc }: { subject: string; from: string; receivedAtUtc: string }) {
-  return (
-    <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
-      <span className="font-medium text-slate-600">{subject}</span>
-      <span className="mx-1.5">·</span>
-      {from}
-      <span className="mx-1.5">·</span>
-      {formatRelative(receivedAtUtc)}
+    <div className="flex shrink-0 items-center gap-1.5">
+      <StatusBadge status={from} />
+      <ArrowRight className="size-3.5 text-fg-subtle" aria-hidden />
+      <StatusBadge status={to} />
     </div>
   )
 }
 
-function StatusUpdateRow({
+function EmailMeta({
+  subject,
+  from,
+  receivedAtUtc,
+}: {
+  subject: string
+  from: string
+  receivedAtUtc: string
+}) {
+  return (
+    <p className="mt-3 rounded-control bg-surface-muted px-3 py-2 text-xs text-fg-muted">
+      <span className="font-medium text-fg">{subject}</span> · {from} ·{' '}
+      {formatRelative(receivedAtUtc)}
+    </p>
+  )
+}
+
+function StatusUpdateCard({
   suggestion,
   onAccept,
   onDismiss,
@@ -54,9 +67,9 @@ function StatusUpdateRow({
   onAccept: (interview?: { interviewAtUtc: string; interviewKind: InterviewKind }) => Promise<void>
   onDismiss: () => void
 }) {
-  const [applying, setApplying] = useState(false)
+  const accept = useAsyncAction()
 
-  // Editable, and defaulted on: the model read this time out of an email, and
+  // Editable, and on by default: the model read this time out of an email, and
   // a misread one books the wrong appointment. Correcting it here is cheaper
   // than fixing it on a calendar afterwards.
   const [scheduleIt, setScheduleIt] = useState(Boolean(suggestion.interviewAtUtc))
@@ -64,39 +77,17 @@ function StatusUpdateRow({
     suggestion.interviewAtUtc ? toDateTimeLocalValue(suggestion.interviewAtUtc) : '',
   )
 
-  const accept = async () => {
-    setApplying(true)
-    try {
-      await onAccept(
-        scheduleIt && slot
-          ? {
-              interviewAtUtc: fromDateTimeLocalValue(slot),
-              interviewKind: suggestion.interviewKind ?? 'Other',
-            }
-          : undefined,
-      )
-    } finally {
-      setApplying(false)
-    }
-  }
-
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-base font-bold text-slate-900">{suggestion.companyName}</div>
-          <div className="text-sm text-slate-500">{suggestion.roleTitle}</div>
+    <Card>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-fg">{suggestion.companyName}</p>
+          <p className="text-sm text-fg-muted">{suggestion.roleTitle}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <StatusPill status={suggestion.currentStatus} />
-          <span className="text-slate-400" aria-hidden>
-            →
-          </span>
-          <StatusPill status={suggestion.suggestedStatus} />
-        </div>
+        <Transition from={suggestion.currentStatus} to={suggestion.suggestedStatus} />
       </div>
 
-      <p className="mt-3 text-sm leading-relaxed text-slate-700">{suggestion.reasoning}</p>
+      <p className="mt-3 text-sm leading-relaxed text-fg-muted">{suggestion.reasoning}</p>
 
       <EmailMeta
         subject={suggestion.emailSubject}
@@ -105,56 +96,63 @@ function StatusUpdateRow({
       />
 
       {suggestion.interviewAtUtc && (
-        <div className="mt-3 rounded-xl border border-fuchsia-200 bg-fuchsia-50/60 p-3">
-          <label className="flex items-center gap-2 text-sm font-bold text-fuchsia-900">
-            <input
-              type="checkbox"
-              checked={scheduleIt}
-              onChange={(event) => setScheduleIt(event.target.checked)}
-              className="size-4 accent-fuchsia-600"
-            />
-            📅 Also schedule this interview
-          </label>
-          <p className="mt-1 text-xs text-fuchsia-800">
-            Read out of the email — check the time before accepting.
-          </p>
-          <input
-            type="datetime-local"
-            value={slot}
-            disabled={!scheduleIt}
-            onChange={(event) => setSlot(event.target.value)}
-            className="mt-2 w-full rounded-lg border border-fuchsia-300 bg-white px-3 py-1.5 text-sm text-slate-900 disabled:opacity-50"
+        <div className="mt-3 rounded-control border border-line p-3">
+          <Checkbox
+            checked={scheduleIt}
+            onChange={(event) => setScheduleIt(event.target.checked)}
+            label={
+              <>
+                Also schedule this interview
+                <span className="mt-0.5 block text-xs text-fg-muted">
+                  Read out of the email — check the time before accepting.
+                </span>
+              </>
+            }
           />
+          <div className="mt-2">
+            <Input
+              type="datetime-local"
+              value={slot}
+              disabled={!scheduleIt}
+              onChange={(event) => setSlot(event.target.value)}
+              aria-label="Interview date and time"
+            />
+          </div>
         </div>
       )}
 
+      {accept.error && <p className="mt-3 text-sm text-danger">{accept.error}</p>}
+
       <div className="mt-3 flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onDismiss}
-          disabled={applying}
-          className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 disabled:opacity-60"
-        >
+        <Button size="sm" onClick={onDismiss} disabled={accept.busy}>
           Dismiss
-        </button>
-        <button
-          type="button"
-          onClick={() => void accept()}
-          disabled={applying}
-          className="brand-gradient rounded-lg px-4 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-60"
+        </Button>
+        <Button
+          size="sm"
+          loading={accept.busy}
+          onClick={() =>
+            void accept.run(() =>
+              onAccept(
+                scheduleIt && slot
+                  ? {
+                      interviewAtUtc: fromDateTimeLocalValue(slot),
+                      interviewKind: suggestion.interviewKind ?? 'Other',
+                    }
+                  : undefined,
+              ),
+            )
+          }
         >
-          {applying
-            ? 'Applying…'
-            : scheduleIt && slot
-              ? `Mark as ${STATUS_META[suggestion.suggestedStatus].label} & schedule`
-              : `Mark as ${STATUS_META[suggestion.suggestedStatus].label}`}
-        </button>
+          {scheduleIt && slot
+            ? `Mark as ${STATUS_LABELS[suggestion.suggestedStatus]} & schedule`
+            : `Mark as ${STATUS_LABELS[suggestion.suggestedStatus]}`}
+        </Button>
       </div>
-    </div>
+    </Card>
   )
 }
 
-function NewApplicationRow({
+function NewApplicationCard({
   suggestion,
   onAdd,
   onDismiss,
@@ -164,18 +162,13 @@ function NewApplicationRow({
   onDismiss: () => void
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-base font-bold text-slate-900">{suggestion.companyName}</div>
-          <div className="text-sm text-slate-500">{suggestion.roleTitle || 'Role not stated in email'}</div>
-        </div>
-        <span className="shrink-0 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
-          New application
-        </span>
-      </div>
+    <Card>
+      <p className="text-sm font-medium text-fg">{suggestion.companyName}</p>
+      <p className="text-sm text-fg-muted">
+        {suggestion.roleTitle || 'Role not stated in the email'}
+      </p>
 
-      <p className="mt-3 text-sm leading-relaxed text-slate-700">{suggestion.reasoning}</p>
+      <p className="mt-3 text-sm leading-relaxed text-fg-muted">{suggestion.reasoning}</p>
 
       <EmailMeta
         subject={suggestion.emailSubject}
@@ -184,53 +177,54 @@ function NewApplicationRow({
       />
 
       <div className="mt-3 flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-100"
-        >
+        <Button size="sm" onClick={onDismiss}>
           Dismiss
-        </button>
-        <button
-          type="button"
-          onClick={onAdd}
-          className="brand-gradient rounded-lg px-4 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
-        >
+        </Button>
+        <Button size="sm" onClick={onAdd}>
           Review &amp; add
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   )
 }
 
-function AutoAppliedRow({ confirmation }: { confirmation: AutoApplied }) {
+function AutoAppliedCard({ confirmation }: { confirmation: AutoApplied }) {
   return (
-    <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-base font-bold text-slate-900">{confirmation.companyName}</div>
-          <div className="text-sm text-slate-500">{confirmation.roleTitle}</div>
+    <Card>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-fg">{confirmation.companyName}</p>
+          <p className="text-sm text-fg-muted">{confirmation.roleTitle}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <StatusPill status="Preparing" />
-          <span className="text-slate-400" aria-hidden>
-            →
-          </span>
-          <StatusPill status="Applied" />
-        </div>
+        <Transition from="Preparing" to="Applied" />
       </div>
 
-      <p className="mt-3 text-sm leading-relaxed text-slate-700">{confirmation.reasoning}</p>
+      <p className="mt-3 text-sm leading-relaxed text-fg-muted">{confirmation.reasoning}</p>
 
       <EmailMeta
         subject={confirmation.emailSubject}
         from={confirmation.emailFrom}
         receivedAtUtc={confirmation.emailReceivedAtUtc}
       />
-    </div>
+    </Card>
   )
 }
 
+function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <section>
+      <h3 className="text-sm font-semibold text-fg">{title}</h3>
+      {hint && <p className="mt-0.5 text-sm text-fg-muted">{hint}</p>}
+      <div className="mt-2 space-y-3">{children}</div>
+    </section>
+  )
+}
+
+/**
+ * Renamed from "Gmail suggestions" per the glossary — these are email updates,
+ * and what you do to one is accept or dismiss it. R4 moves this behind the
+ * header's Email updates button and gives it a Check for updates action.
+ */
 export function GmailSuggestionsModal({
   statusUpdates,
   newApplications,
@@ -244,82 +238,57 @@ export function GmailSuggestionsModal({
   const total = statusUpdates.length + newApplications.length + autoApplied.length
 
   return (
-    <ModalBackdrop onClose={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Gmail suggestions"
-        className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl"
-      >
-        <ModalHeader
-          title={total === 0 ? 'All caught up' : `${total} update${total === 1 ? '' : 's'} found`}
-          subtitle="Found in your recent email — review each before applying."
-          onClose={onClose}
+    <Modal
+      title="Email updates"
+      description="Found in your recent email — review each one before it's applied."
+      onClose={onClose}
+      footer={<Button onClick={onClose}>Close</Button>}
+    >
+      {total === 0 ? (
+        <EmptyState
+          title="All caught up"
+          description="Nothing left to review from this scan."
         />
+      ) : (
+        <div className="space-y-6">
+          {autoApplied.length > 0 && (
+            <Section
+              title="Confirmed as applied"
+              hint="You were prepping these and the company confirmed they got your application, so they've already moved. Nothing to do."
+            >
+              {autoApplied.map((confirmation) => (
+                <AutoAppliedCard key={confirmation.applicationId} confirmation={confirmation} />
+              ))}
+            </Section>
+          )}
 
-        <div className="max-h-[70vh] overflow-y-auto p-7">
-          {total === 0 ? (
-            <p className="py-8 text-center text-base text-slate-500">
-              Nothing left to review — you've handled everything from this scan.
-            </p>
-          ) : (
-            <div className="space-y-6">
-              {autoApplied.length > 0 && (
-                <div>
-                  <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-400">
-                    Confirmed as applied
-                  </h3>
-                  <p className="mb-3 text-sm text-slate-500">
-                    You were prepping these and the company confirmed they got your application, so they've
-                    already been moved. Nothing to do.
-                  </p>
-                  <div className="space-y-4">
-                    {autoApplied.map((confirmation) => (
-                      <AutoAppliedRow key={confirmation.applicationId} confirmation={confirmation} />
-                    ))}
-                  </div>
-                </div>
-              )}
+          {newApplications.length > 0 && (
+            <Section title="New applications">
+              {newApplications.map((suggestion) => (
+                <NewApplicationCard
+                  key={`${suggestion.companyName}-${suggestion.emailSubject}`}
+                  suggestion={suggestion}
+                  onAdd={() => onAddNewApplication(suggestion)}
+                  onDismiss={() => onDismissNewApplication(suggestion)}
+                />
+              ))}
+            </Section>
+          )}
 
-              {newApplications.length > 0 && (
-                <div>
-                  <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-400">
-                    New applications
-                  </h3>
-                  <div className="space-y-4">
-                    {newApplications.map((suggestion) => (
-                      <NewApplicationRow
-                        key={`${suggestion.companyName}-${suggestion.emailSubject}`}
-                        suggestion={suggestion}
-                        onAdd={() => onAddNewApplication(suggestion)}
-                        onDismiss={() => onDismissNewApplication(suggestion)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {statusUpdates.length > 0 && (
-                <div>
-                  <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-400">
-                    Status updates
-                  </h3>
-                  <div className="space-y-4">
-                    {statusUpdates.map((suggestion) => (
-                      <StatusUpdateRow
-                        key={`${suggestion.applicationId}-${suggestion.emailSubject}`}
-                        suggestion={suggestion}
-                        onAccept={(interview) => onAcceptStatusUpdate(suggestion, interview)}
-                        onDismiss={() => onDismissStatusUpdate(suggestion)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+          {statusUpdates.length > 0 && (
+            <Section title="Status updates">
+              {statusUpdates.map((suggestion) => (
+                <StatusUpdateCard
+                  key={`${suggestion.applicationId}-${suggestion.emailSubject}`}
+                  suggestion={suggestion}
+                  onAccept={(interview) => onAcceptStatusUpdate(suggestion, interview)}
+                  onDismiss={() => onDismissStatusUpdate(suggestion)}
+                />
+              ))}
+            </Section>
           )}
         </div>
-      </div>
-    </ModalBackdrop>
+      )}
+    </Modal>
   )
 }

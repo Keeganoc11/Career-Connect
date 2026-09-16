@@ -21,13 +21,15 @@ import { ApplicationsTable } from '../components/ApplicationsTable'
 import { ApplicationFormModal } from '../components/ApplicationFormModal'
 import { MatchDetailModal } from '../components/MatchDetailModal'
 import { PrepModal } from '../components/PrepModal'
-import { AiToolsModal } from '../components/AiToolsModal'
+import { CoverLetterModal } from '../components/CoverLetterModal'
+import { InterviewPrepModal } from '../components/InterviewPrepModal'
 import { InterviewsModal } from '../components/InterviewsModal'
-import { ConfirmDialog } from '../components/ConfirmDialog'
+import { ConfirmDialog, toast } from '../components/ui'
 import { CopilotPanel } from '../components/CopilotPanel'
 import { GmailConnectControl } from '../components/GmailConnectControl'
 import { GmailSuggestionsModal } from '../components/GmailSuggestionsModal'
 import { useApiErrorHandler } from '../lib/useApiErrorHandler'
+import { useAsyncAction } from '../lib/useAsyncAction'
 
 export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [applications, setApplications] = useState<Application[]>([])
@@ -44,14 +46,15 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [scoreError, setScoreError] = useState<string | null>(null)
   const [matchTarget, setMatchTarget] = useState<Application | null>(null)
   const [prepTarget, setPrepTarget] = useState<{ application: Application; autoStart: boolean } | null>(null)
-  const [toolsTarget, setToolsTarget] = useState<Application | null>(null)
+  const [coverLetterTarget, setCoverLetterTarget] = useState<Application | null>(null)
+  const [interviewPrepTarget, setInterviewPrepTarget] = useState<Application | null>(null)
   const [interviewsTarget, setInterviewsTarget] = useState<Application | null>(null)
   const [resumes, setResumes] = useState<ResumeSummary[]>([])
   const [tailoring, setTailoring] = useState(false)
   const [formTarget, setFormTarget] = useState<Application | null | 'new'>(null)
   const [formPrefill, setFormPrefill] = useState<Partial<Pick<ApplicationInput, 'companyName' | 'roleTitle' | 'dateApplied'>> | undefined>(undefined)
   const [deleteTarget, setDeleteTarget] = useState<Application | null>(null)
-  const [deleting, setDeleting] = useState(false)
+  const deletion = useAsyncAction()
 
   const [gmailStatus, setGmailStatus] = useState<GmailConnectionStatus | null>(null)
   const [gmailScanning, setGmailScanning] = useState(false)
@@ -413,19 +416,17 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
   }
 
-  const confirmDelete = async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try {
+  // The dialog stays open and shows the reason if this fails, rather than
+  // closing as though the delete worked.
+  const confirmDelete = () =>
+    void deletion.run(async () => {
+      if (!deleteTarget) return
+      const { companyName } = deleteTarget
       await api.deleteApplication(deleteTarget.id)
       setDeleteTarget(null)
       await refresh()
-    } catch (e) {
-      handleError(e)
-    } finally {
-      setDeleting(false)
-    }
-  }
+      toast.success(`${companyName} deleted.`)
+    })
 
   return (
     <>
@@ -597,7 +598,8 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
             onOpenMatch={(application) => setMatchTarget(application)}
             onOpenPrep={openPrep}
             onOpenInterviews={(application) => setInterviewsTarget(application)}
-            onOpenTools={(application) => setToolsTarget(application)}
+            onOpenCoverLetter={(application) => setCoverLetterTarget(application)}
+            onOpenInterviewPrep={(application) => setInterviewPrepTarget(application)}
             onEdit={(application) => setFormTarget(application)}
             onDelete={(application) => setDeleteTarget(application)}
           />
@@ -648,16 +650,24 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
       {interviewsTarget && (
         <InterviewsModal
           application={interviewsTarget}
+          gmail={gmailStatus}
           onClose={() => setInterviewsTarget(null)}
           onChanged={() => void refresh()}
         />
       )}
 
-      {toolsTarget && (
-        <AiToolsModal
-          application={toolsTarget}
-          onClose={() => setToolsTarget(null)}
+      {coverLetterTarget && (
+        <CoverLetterModal
+          application={coverLetterTarget}
+          onClose={() => setCoverLetterTarget(null)}
           onChanged={() => void refresh()}
+        />
+      )}
+
+      {interviewPrepTarget && (
+        <InterviewPrepModal
+          application={interviewPrepTarget}
+          onClose={() => setInterviewPrepTarget(null)}
         />
       )}
 
@@ -677,10 +687,12 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
       {deleteTarget && (
         <ConfirmDialog
           title="Delete application?"
-          body={`This permanently removes ${deleteTarget.companyName} — ${deleteTarget.roleTitle}, including its status history and match scores.`}
-          confirmLabel="Delete"
-          busy={deleting}
-          onConfirm={() => void confirmDelete()}
+          body={`This permanently removes ${deleteTarget.companyName} · ${deleteTarget.roleTitle}, including its status history, match scores, and any interviews on your Google Calendar.`}
+          confirmLabel="Delete application"
+          busyLabel="Deleting…"
+          busy={deletion.busy}
+          error={deletion.error}
+          onConfirm={confirmDelete}
           onCancel={() => setDeleteTarget(null)}
         />
       )}

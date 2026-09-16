@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import type { ResumeSummary } from '../api/types'
 import { formatRelative } from '../lib/format'
-import { ConfirmDialog } from '../components/ConfirmDialog'
+import { ConfirmDialog } from '../components/ui'
 import { fieldClass as inputClass } from '../lib/styles'
 import { useApiErrorHandler } from '../lib/useApiErrorHandler'
 
@@ -318,7 +318,8 @@ export function ResumesPage({ onLoggedOut }: { onLoggedOut: () => void }) {
         <ConfirmDialog
           title="Delete resume?"
           body={`This permanently removes “${deleteTarget.label}”. Resumes with existing match scores can't be deleted.`}
-          confirmLabel="Delete"
+          confirmLabel="Delete resume"
+          busyLabel="Deleting…"
           busy={deleting}
           onConfirm={() => void confirmDelete()}
           onCancel={() => setDeleteTarget(null)}

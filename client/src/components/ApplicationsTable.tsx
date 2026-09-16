@@ -19,7 +19,8 @@ interface Props {
   onOpenMatch: (application: Application) => void
   onOpenPrep: (application: Application) => void
   onOpenInterviews: (application: Application) => void
-  onOpenTools: (application: Application) => void
+  onOpenCoverLetter: (application: Application) => void
+  onOpenInterviewPrep: (application: Application) => void
   onEdit: (application: Application) => void
   onDelete: (application: Application) => void
 }
@@ -51,7 +52,8 @@ export function ApplicationsTable({
   onOpenMatch,
   onOpenPrep,
   onOpenInterviews,
-  onOpenTools,
+  onOpenCoverLetter,
+  onOpenInterviewPrep,
   onEdit,
   onDelete,
 }: Props) {
@@ -204,10 +206,17 @@ export function ApplicationsTable({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onOpenTools(application)}
+                    onClick={() => onOpenCoverLetter(application)}
                     className="rounded-lg px-3 py-1.5 text-sm font-semibold text-brand-600 hover:bg-brand-50"
                   >
-                    ✨ AI tools
+                    Cover letter
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onOpenInterviewPrep(application)}
+                    className="rounded-lg px-3 py-1.5 text-sm font-semibold text-brand-600 hover:bg-brand-50"
+                  >
+                    Interview prep
                   </button>
                   <button
                     type="button"

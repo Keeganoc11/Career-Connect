@@ -1,6 +1,8 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react'
 
 interface Props extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'children'> {
+  /** So a Popover or Menu can anchor itself to this button. */
+  ref?: Ref<HTMLButtonElement>
   /**
    * Required, and deliberately so. The unlabelled ✕ that silently disconnected
    * Gmail is the reason this primitive exists: an icon with no accessible name
@@ -13,7 +15,7 @@ interface Props extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className
   tone?: 'default' | 'danger'
 }
 
-export function IconButton({ label, icon, count, tone = 'default', ...rest }: Props) {
+export function IconButton({ ref, label, icon, count, tone = 'default', ...rest }: Props) {
   const tones =
     tone === 'danger'
       ? 'text-fg-muted hover:bg-danger-soft hover:text-danger'
@@ -22,6 +24,7 @@ export function IconButton({ label, icon, count, tone = 'default', ...rest }: Pr
   return (
     <button
       {...rest}
+      ref={ref}
       type="button"
       aria-label={label}
       title={label}
