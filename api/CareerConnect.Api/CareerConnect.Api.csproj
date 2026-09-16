@@ -26,4 +26,10 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Tinos and Arimo (SIL OFL 1.1): metric-compatible stand-ins for Times New
+         Roman and Arial, embedded so tailored resumes render identically everywhere. -->
+    <EmbeddedResource Include="Resources\Fonts\*.ttf" />
+  </ItemGroup>
+
 </Project>

@@ -15,7 +15,8 @@ public class ApplicationsController(
     IResumeTailorService resumeTailor,
     ICoverLetterService coverLetters,
     IInterviewPrepService interviewPrep,
-    IPrepRunService prepRuns) : ApiControllerBase
+    IPrepRunService prepRuns,
+    IResumeRenderer renderer) : ApiControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<ApplicationResponse>>> List() =>
@@ -133,7 +134,7 @@ public class ApplicationsController(
 
     /// <summary>
     /// Kicks off the automated prep pass — score, rewrite and re-score until it
-    /// clears the target, then write a cover letter. Returns immediately with a
+    /// clears the target, check the changes, then write the reality check. Returns immediately with a
     /// Running run; poll GET /prep for progress.
     /// </summary>
     [HttpPost("{id:guid}/prep")]
@@ -167,6 +168,23 @@ public class ApplicationsController(
 
             _ => StatusCode(StatusCodes.Status500InternalServerError),
         };
+    }
+
+    /// <summary>The tailored resume as a PDF, in the base resume's exact format.</summary>
+    [HttpGet("{id:guid}/resume.pdf")]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> TailoredResumePdf(Guid id)
+    {
+        var found = await applications.GetTailoredResumeAsync(UserId, id);
+        if (found is not { } tailored)
+        {
+            return NotFound();
+        }
+
+        return File(
+            renderer.Render(tailored.Layout),
+            "application/pdf",
+            ResumeFileNames.ForApplication(tailored.Layout, tailored.CompanyName));
     }
 
     [HttpDelete("{id:guid}")]

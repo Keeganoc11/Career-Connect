@@ -9,23 +9,30 @@ public class ApplicationPrepRunnerTests : IDisposable
 {
     private readonly TestDatabase _fixture = new();
     private readonly FakeResumeMatchAnalyzer _analyzer = new();
-    private readonly FakeResumeTailorer _tailorer = new();
-    private readonly FakeCoverLetterGenerator _coverLetters = new();
+    private readonly FakeResumeLayoutTailorer _tailorer = new();
+    private readonly FakeResumeClaimsAuditor _auditor = new();
+    private readonly FakeResumeReviewer _reviewer = new();
     private readonly ApplicationPrepRunner _runner;
     private readonly Guid _userId;
+    private readonly ResumeLayout _base = TestResumes.Layout();
 
     public ApplicationPrepRunnerTests()
     {
         _userId = _fixture.SeedUser("me@example.com");
         _runner = new ApplicationPrepRunner(
-            _fixture.Db, _analyzer, _tailorer, _coverLetters,
+            _fixture.Db, _analyzer, _tailorer,
+            new ResumeEditGuard(new ResumeRenderer(), _tailorer),
+            _auditor, _reviewer,
             NullLogger<ApplicationPrepRunner>.Instance);
     }
 
     public void Dispose() => _fixture.Dispose();
 
-    private PrepRun SeedRun(Application application, int targetScore = 80)
+    private PrepRun Seed(int targetScore = 80, bool withLayout = true)
     {
+        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
+        _fixture.SeedResume(_userId, layout: withLayout ? _base : null);
+
         var run = new PrepRun
         {
             Id = Guid.NewGuid(),
@@ -39,170 +46,187 @@ public class ApplicationPrepRunnerTests : IDisposable
         return run;
     }
 
-    private Task<PrepRun> ReloadAsync(Guid runId) =>
-        _fixture.Db.PrepRuns.AsNoTracking().FirstAsync(r => r.Id == runId);
+    private void Scores(params int[] scores)
+    {
+        foreach (var score in scores)
+        {
+            _analyzer.ScoreSequence.Enqueue(score);
+        }
+    }
+
+    private async Task<(PrepRun Run, Application Application)> RunAsync(PrepRun run)
+    {
+        await _runner.ExecuteAsync(run.Id);
+        var completed = await _fixture.Db.PrepRuns.AsNoTracking().FirstAsync(r => r.Id == run.Id);
+        var application = await _fixture.Db.Applications.AsNoTracking().FirstAsync(a => a.Id == run.ApplicationId);
+        return (completed, application);
+    }
+
+    private string? TailoredBullet(Application application) =>
+        application.TailoredResumeLayout?.Find(TestResumes.BulletLine)?.EditableText;
 
     [Fact]
     public async Task ExecuteAsync_SkipsTailoring_WhenBaselineAlreadyClearsTarget()
     {
-        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
-        _fixture.SeedResume(_userId);
-        _analyzer.ScoreSequence.Enqueue(85);
-        var run = SeedRun(application);
+        Scores(85);
 
-        await _runner.ExecuteAsync(run.Id);
+        var (run, application) = await RunAsync(Seed());
 
-        var completed = await ReloadAsync(run.Id);
-        Assert.Equal(PrepRunStatus.Succeeded, completed.Status);
-        Assert.Equal(85, completed.BaselineScore);
-        Assert.Equal(85, completed.FinalScore);
-        Assert.Equal(0, completed.Iterations);
-        Assert.True(completed.ReadyToApply);
+        Assert.Equal(PrepRunStatus.Succeeded, run.Status);
+        Assert.Equal(85, run.BaselineScore);
+        Assert.Equal(85, run.FinalScore);
+        Assert.Equal(0, run.Iterations);
+        Assert.True(run.ReadyToApply);
         Assert.Equal(0, _tailorer.CallCount);
+        // Still a file to download: the base resume, untouched.
+        Assert.Equal(_base.ToPlainText(), application.TailoredResumeLayout!.ToPlainText());
+        Assert.Empty(run.Changes);
     }
 
     [Fact]
     public async Task ExecuteAsync_TailorsUntilTargetIsCleared()
     {
-        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
-        _fixture.SeedResume(_userId);
-        _analyzer.ScoreSequence.Enqueue(50); // baseline
-        _analyzer.ScoreSequence.Enqueue(70); // after first rewrite — still short
-        _analyzer.ScoreSequence.Enqueue(88); // after second — clears 80
-        var run = SeedRun(application);
+        Scores(50, 70, 88);
 
-        await _runner.ExecuteAsync(run.Id);
+        var (run, application) = await RunAsync(Seed());
 
-        var completed = await ReloadAsync(run.Id);
-        Assert.Equal(PrepRunStatus.Succeeded, completed.Status);
-        Assert.Equal(50, completed.BaselineScore);
-        Assert.Equal(88, completed.FinalScore);
-        Assert.Equal(2, completed.Iterations);
-        Assert.True(completed.ReadyToApply);
-        Assert.Equal(2, _tailorer.CallCount);
+        Assert.Equal(88, run.FinalScore);
+        Assert.Equal(2, run.Iterations);
+        Assert.True(run.ReadyToApply);
+        Assert.Equal(FakeResumeLayoutTailorer.PassPhrases[1], TailoredBullet(application));
+        Assert.Equal(application.TailoredResumeLayout!.ToPlainText(), application.TailoredResumeText);
     }
 
     [Fact]
     public async Task ExecuteAsync_StopsRewriting_WhenAPassDoesNotImprove()
     {
-        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
-        _fixture.SeedResume(_userId);
-        _analyzer.ScoreSequence.Enqueue(50); // baseline
-        _analyzer.ScoreSequence.Enqueue(60); // better, keep going
-        _analyzer.ScoreSequence.Enqueue(55); // worse — give up rather than burn a third pass
-        var run = SeedRun(application);
+        Scores(50, 60, 55);
 
-        await _runner.ExecuteAsync(run.Id);
+        var (run, application) = await RunAsync(Seed());
 
-        var completed = await ReloadAsync(run.Id);
-        Assert.Equal(PrepRunStatus.Succeeded, completed.Status);
-        Assert.Equal(60, completed.FinalScore);
-        Assert.Equal(2, completed.Iterations);
-        Assert.False(completed.ReadyToApply);
-        Assert.Equal(2, _tailorer.CallCount);
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_KeepsTheBestRewrite_NotTheLastOne()
-    {
-        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
-        _fixture.SeedResume(_userId);
-        _analyzer.ScoreSequence.Enqueue(50);
-        _analyzer.ScoreSequence.Enqueue(60); // pass 1 — the winner
-        _analyzer.ScoreSequence.Enqueue(55); // pass 2 — regressed, must not be saved
-        var run = SeedRun(application);
-
-        await _runner.ExecuteAsync(run.Id);
-
-        var saved = await _fixture.Db.Applications.AsNoTracking().FirstAsync(a => a.Id == application.Id);
-        Assert.Equal(_tailorer.Result, saved.TailoredResumeText);
+        Assert.Equal(60, run.FinalScore);
+        Assert.Equal(2, run.Iterations);
+        Assert.False(run.ReadyToApply);
+        // The winner is pass 1, not the regressed pass 2.
+        Assert.Equal(FakeResumeLayoutTailorer.PassPhrases[0], TailoredBullet(application));
     }
 
     [Fact]
     public async Task ExecuteAsync_KeepsATiedRewrite_SinceItIsStillReframedForThePosting()
     {
-        // Scoring the same doesn't mean the rewrite was worthless — it's still
-        // written in the posting's language. Only a regression is discarded.
-        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
-        _fixture.SeedResume(_userId);
-        _analyzer.ScoreSequence.Enqueue(50);
-        _analyzer.ScoreSequence.Enqueue(50);
-        var run = SeedRun(application);
+        Scores(50, 50);
 
-        await _runner.ExecuteAsync(run.Id);
+        var (_, application) = await RunAsync(Seed());
 
-        var saved = await _fixture.Db.Applications.AsNoTracking().FirstAsync(a => a.Id == application.Id);
-        Assert.Equal(_tailorer.Result, saved.TailoredResumeText);
+        Assert.Equal(FakeResumeLayoutTailorer.PassPhrases[0], TailoredBullet(application));
         Assert.Equal(1, _tailorer.CallCount);
     }
 
     [Fact]
-    public async Task ExecuteAsync_DiscardsARegressedRewrite_AndFallsBackToTheBaseResume()
+    public async Task ExecuteAsync_DiscardsARegressedRewrite_AndKeepsTheBaseResume()
     {
-        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
-        _fixture.SeedResume(_userId);
-        _analyzer.ScoreSequence.Enqueue(50);
-        _analyzer.ScoreSequence.Enqueue(40); // strictly worse than the untouched resume
-        var run = SeedRun(application);
+        Scores(50, 40);
 
-        await _runner.ExecuteAsync(run.Id);
+        var (run, application) = await RunAsync(Seed());
 
-        var saved = await _fixture.Db.Applications.AsNoTracking().FirstAsync(a => a.Id == application.Id);
-        Assert.Null(saved.TailoredResumeText);
-
-        var completed = await ReloadAsync(run.Id);
-        Assert.Equal(50, completed.FinalScore);
+        Assert.Equal(50, run.FinalScore);
+        Assert.Equal(_base.ToPlainText(), application.TailoredResumeLayout!.ToPlainText());
+        Assert.Empty(run.Changes);
+        Assert.Equal(0, _auditor.CallCount);
     }
 
     [Fact]
     public async Task ExecuteAsync_StopsAfterThreePasses_WhenTargetIsNeverCleared()
     {
-        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
-        _fixture.SeedResume(_userId);
-        foreach (var score in new[] { 10, 20, 30, 40 })
-        {
-            _analyzer.ScoreSequence.Enqueue(score);
-        }
-        var run = SeedRun(application);
+        Scores(10, 20, 30, 40);
 
-        await _runner.ExecuteAsync(run.Id);
+        var (run, _) = await RunAsync(Seed());
 
-        var completed = await ReloadAsync(run.Id);
-        Assert.Equal(3, completed.Iterations);
-        Assert.Equal(40, completed.FinalScore);
-        Assert.False(completed.ReadyToApply);
+        Assert.Equal(3, run.Iterations);
+        Assert.Equal(40, run.FinalScore);
+        Assert.False(run.ReadyToApply);
     }
 
     [Fact]
-    public async Task ExecuteAsync_WritesCoverLetterAgainstTheTailoredResume()
+    public async Task ExecuteAsync_StopsWhenNoProposalSurvivesTheGuard()
     {
-        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
-        _fixture.SeedResume(_userId);
-        _analyzer.ScoreSequence.Enqueue(50);
-        _analyzer.ScoreSequence.Enqueue(90);
-        var run = SeedRun(application);
+        Scores(50);
+        _tailorer.Proposals.Enqueue([new LineEdit("L01", "Someone Else", "r")]);
 
-        await _runner.ExecuteAsync(run.Id);
+        var (run, _) = await RunAsync(Seed());
 
-        var saved = await _fixture.Db.Applications.AsNoTracking().FirstAsync(a => a.Id == application.Id);
-        Assert.Equal(_coverLetters.Result, saved.CoverLetterText);
-        Assert.Equal(1, _coverLetters.CallCount);
+        Assert.Equal(PrepRunStatus.Succeeded, run.Status);
+        Assert.Equal(1, run.Iterations);
+        Assert.Equal(1, _analyzer.CallCount);
+        Assert.Contains(run.Steps, s => s.Label == "Nothing left to rewrite");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RecordsWhatChangedAndWhy()
+    {
+        Scores(50, 90);
+
+        var (run, _) = await RunAsync(Seed());
+
+        var change = Assert.Single(run.Changes);
+        Assert.Equal(TestResumes.BulletLine, change.LineId);
+        Assert.Equal(_base.Find(TestResumes.BulletLine)!.EditableText, change.Before);
+        Assert.Equal(FakeResumeLayoutTailorer.PassPhrases[0], change.After);
+        Assert.Equal("Reason 1", change.Reason);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PutsBackLinesTheClaimsCheckFlags_AndRescores()
+    {
+        Scores(50, 90, 52);
+        _auditor.Flag = [new UnsupportedClaim(TestResumes.BulletLine, "adds production scale, never shown")];
+
+        var (run, application) = await RunAsync(Seed());
+
+        Assert.Equal(_base.Find(TestResumes.BulletLine)!.EditableText, TailoredBullet(application));
+        Assert.Empty(run.Changes);
+        Assert.Equal(52, run.FinalScore);
+        Assert.False(run.ReadyToApply);
+        Assert.Contains(run.Steps, s => s.Label.StartsWith("Put back 1 line"));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WritesTheRealityCheckAgainstTheFinalResume()
+    {
+        Scores(50, 90);
+
+        var (run, application) = await RunAsync(Seed());
+
+        Assert.NotNull(run.Review);
+        Assert.Equal(FitVerdict.StrongFit, run.Review.Verdict);
+        Assert.Equal(_reviewer.Result.RealityCheck, run.Review.RealityCheck);
+        Assert.Equal(application.TailoredResumeText, _reviewer.LastResumeText);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ADealbreakerMeansNotReady_HoweverHighTheScore()
+    {
+        Scores(92);
+        _reviewer.Result = _reviewer.Result with
+        {
+            Dealbreakers = [new Dealbreaker("5+ years of professional .NET", "About a year across an internship and projects.")],
+        };
+
+        var (run, _) = await RunAsync(Seed());
+
+        Assert.False(run.ReadyToApply);
+        Assert.Equal(FitVerdict.Stretch, run.Review!.Verdict);
     }
 
     [Fact]
     public async Task ExecuteAsync_RecordsEveryScoreAsMatchHistory()
     {
-        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
-        _fixture.SeedResume(_userId);
-        _analyzer.ScoreSequence.Enqueue(50);
-        _analyzer.ScoreSequence.Enqueue(90);
-        var run = SeedRun(application);
+        Scores(50, 90);
 
-        await _runner.ExecuteAsync(run.Id);
+        var (run, _) = await RunAsync(Seed());
 
-        var results = await _fixture.Db.MatchResults
-            .AsNoTracking()
-            .Where(m => m.ApplicationId == application.Id)
+        var results = await _fixture.Db.MatchResults.AsNoTracking()
+            .Where(m => m.ApplicationId == run.ApplicationId)
             .OrderBy(m => m.Score)
             .ToListAsync();
 
@@ -212,40 +236,53 @@ public class ApplicationPrepRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task ExecuteAsync_Fails_WhenTheActiveResumeHasNoLayout()
+    {
+        var (run, _) = await RunAsync(Seed(withLayout: false));
+
+        Assert.Equal(PrepRunStatus.Failed, run.Status);
+        Assert.Contains("PDF", run.ErrorMessage);
+        Assert.Equal(0, _analyzer.CallCount);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_Fails_WhenThereIsNoActiveResume()
     {
         var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
-        var run = SeedRun(application);
+        var run = new PrepRun
+        {
+            Id = Guid.NewGuid(),
+            ApplicationId = application.Id,
+            Status = PrepRunStatus.Running,
+            TargetScore = 80,
+            StartedAtUtc = DateTime.UtcNow,
+        };
+        _fixture.Db.PrepRuns.Add(run);
+        _fixture.Db.SaveChanges();
 
-        await _runner.ExecuteAsync(run.Id);
+        var (completed, _) = await RunAsync(run);
 
-        var completed = await ReloadAsync(run.Id);
         Assert.Equal(PrepRunStatus.Failed, completed.Status);
         Assert.False(completed.ReadyToApply);
         Assert.Contains("active", completed.ErrorMessage);
     }
 
     [Fact]
-    public async Task ExecuteAsync_Fails_WhenTheModelCallThrows()
+    public async Task ExecuteAsync_Fails_WithTheModelsMessage_WhenAStepThrows()
     {
-        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
-        _fixture.SeedResume(_userId);
-        _analyzer.ThrowOnAnalyze = new MatchAnalysisException("Upstream is down.");
-        var run = SeedRun(application);
+        Scores(50);
+        _tailorer.ThrowOnTailor = new ResumeTailoringException("Upstream is down.");
 
-        await _runner.ExecuteAsync(run.Id);
+        var (run, _) = await RunAsync(Seed());
 
-        var completed = await ReloadAsync(run.Id);
-        Assert.Equal(PrepRunStatus.Failed, completed.Status);
-        Assert.Equal("Upstream is down.", completed.ErrorMessage);
+        Assert.Equal(PrepRunStatus.Failed, run.Status);
+        Assert.Equal("Upstream is down.", run.ErrorMessage);
     }
 
     [Fact]
     public async Task ExecuteAsync_DoesNothing_WhenTheRunAlreadyFinished()
     {
-        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
-        _fixture.SeedResume(_userId);
-        var run = SeedRun(application);
+        var run = Seed();
         run.Status = PrepRunStatus.Succeeded;
         _fixture.Db.SaveChanges();
 

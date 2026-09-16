@@ -42,6 +42,12 @@ public class PrepRun
     /// <summary>Null while running. Set once the pipeline knows whether the target was cleared.</summary>
     public bool? ReadyToApply { get; set; }
 
+    /// <summary>The reality check, written once tailoring has done all it can. Null while running or on failure.</summary>
+    public ResumeReview? Review { get; set; }
+
+    /// <summary>Every line the final version changed from the base resume, with the reason.</summary>
+    public List<ResumeChange> Changes { get; set; } = [];
+
     public string? ErrorMessage { get; set; }
 
     public DateTime StartedAtUtc { get; set; }

@@ -11,18 +11,30 @@ public interface IApplicationPrepRunner
 }
 
 /// <summary>
-/// The automated loop: score the active resume against the posting, rewrite and
-/// re-score until it clears the target, then write a cover letter against
-/// whichever version won. Every step is saved as it completes so the UI can
-/// follow along and a closed tab loses nothing.
+/// The tailoring loop. Score the base resume against the posting, rewrite its
+/// editable lines and re-score until it clears the target, check every change
+/// against the candidate's real experience, then write the reality check.
+///
+/// The resume only ever changes through <see cref="IResumeEditGuard"/>, so
+/// whatever a model proposes, the result keeps the uploaded PDF's exact format,
+/// stays one page, and every line still fits on its line. Every step is saved
+/// as it completes so the UI can follow along and a closed tab loses nothing.
 /// </summary>
 public class ApplicationPrepRunner(
     AppDbContext db,
     IResumeMatchAnalyzer analyzer,
-    IResumeTailorer tailorer,
-    ICoverLetterGenerator coverLetters,
+    IResumeLayoutTailorer tailorer,
+    IResumeEditGuard guard,
+    IResumeClaimsAuditor auditor,
+    IResumeReviewer reviewer,
     ILogger<ApplicationPrepRunner> logger) : IApplicationPrepRunner
 {
+    /// <summary>
+    /// Each pass is at least two model calls, and gains flatten fast — the
+    /// rewrite can only reframe experience the resume already has, not add any.
+    /// </summary>
+    private const int MaxIterations = 3;
+
     public async Task ExecuteAsync(Guid prepRunId, CancellationToken cancellationToken = default)
     {
         var run = await db.PrepRuns
@@ -48,9 +60,9 @@ public class ApplicationPrepRunner(
         catch (Exception ex)
         {
             logger.LogError(ex, "Prep run {PrepRunId} failed.", prepRunId);
-            await FailAsync(run, ex is ResumeTailorException or MatchAnalysisException or CoverLetterGenerationException
+            await FailAsync(run, ex is ResumeTailoringException or MatchAnalysisException or ResumeRenderException
                 ? ex.Message
-                : "Something went wrong while preparing this application.");
+                : "Something went wrong while tailoring this resume.");
         }
     }
 
@@ -60,11 +72,12 @@ public class ApplicationPrepRunner(
 
         if (string.IsNullOrWhiteSpace(application.JobDescriptionText))
         {
-            await FailAsync(run, "This application has no job description to prepare against.");
+            await FailAsync(run, "This application has no job description to tailor against.");
             return;
         }
 
         var resume = await db.Resumes
+            .AsNoTracking()
             .FirstOrDefaultAsync(r => r.UserId == application.UserId && r.IsActive, cancellationToken);
 
         if (resume is null)
@@ -73,96 +86,167 @@ public class ApplicationPrepRunner(
             return;
         }
 
-        var jobDescription = application.JobDescriptionText;
+        if (resume.Layout is null)
+        {
+            await FailAsync(run,
+                "Tailoring needs your resume as a PDF so it can keep its exact format. " +
+                "Upload the PDF on the Resumes page and make it your active resume.");
+            return;
+        }
 
-        var baseline = await analyzer.AnalyzeAsync(
-            resume.Content, jobDescription, application.RoleTitle, application.CompanyName, cancellationToken);
-        await RecordScoreAsync(run, resume.Id, baseline, usedTailoredResume: false, cancellationToken);
+        var baseLayout = resume.Layout;
+        var context = new TailorContext(
+            application.JobDescriptionText, application.RoleTitle, application.CompanyName, resume.ExtraFacts);
 
+        var baseline = await ScoreAsync(run, resume.Id, baseLayout, usedTailoredResume: false, cancellationToken);
         run.BaselineScore = baseline.Score;
         await AddStepAsync(run, "Scored your resume", baseline.Summary, baseline.Score, cancellationToken);
 
-        var best = baseline;
-        string? bestTailoredText = null;
+        var best = baseLayout;
+        var bestScore = baseline;
+        var reasons = new Dictionary<string, string>();
+        var budgets = guard.CharacterBudgets(baseLayout);
 
-        while (best.Score < run.TargetScore && run.Iterations < MaxIterations)
+        while (bestScore.Score < run.TargetScore && run.Iterations < MaxIterations)
         {
             cancellationToken.ThrowIfCancellationRequested();
             run.Iterations++;
 
-            var candidateText = await tailorer.TailorAsync(
-                bestTailoredText ?? resume.Content,
-                jobDescription,
-                application.RoleTitle,
-                application.CompanyName,
-                cancellationToken);
+            var proposals = await tailorer.TailorAsync(best, baseLayout, budgets, bestScore, context, cancellationToken);
+            var guarded = await guard.ApplyAsync(best, baseLayout, proposals, context, cancellationToken);
 
-            var candidate = await analyzer.AnalyzeAsync(
-                candidateText, jobDescription, application.RoleTitle, application.CompanyName, cancellationToken);
-            await RecordScoreAsync(run, resume.Id, candidate, usedTailoredResume: true, cancellationToken);
+            if (guarded.Applied.Count == 0)
+            {
+                await AddStepAsync(
+                    run,
+                    "Nothing left to rewrite",
+                    guarded.Rejected.Count == 0
+                        ? "No further change would honestly improve the fit."
+                        : $"The remaining ideas didn't hold up: {Summarize(guarded.Rejected)}",
+                    null,
+                    cancellationToken);
+                break;
+            }
+
+            var candidate = await ScoreAsync(run, resume.Id, guarded.Layout, usedTailoredResume: true, cancellationToken);
 
             await AddStepAsync(
                 run,
-                $"Rewrote and re-scored (pass {run.Iterations})",
-                candidate.Summary,
+                $"Rewrote {Lines(guarded.Applied.Count)} and re-scored (pass {run.Iterations})",
+                guarded.Rejected.Count == 0
+                    ? candidate.Summary
+                    : $"{candidate.Summary} Discarded: {Summarize(guarded.Rejected)}",
                 candidate.Score,
                 cancellationToken);
 
-            var improved = candidate.Score > best.Score;
+            var improved = candidate.Score > bestScore.Score;
 
-            // A tie still keeps the rewrite — it's reframed in the posting's own
-            // language, which is worth having even when the score doesn't move.
-            // Only a regression is thrown away.
-            if (candidate.Score >= best.Score)
+            // A tie still keeps the rewrite — it's in the posting's own language,
+            // which is worth having even when the score doesn't move. Only a
+            // regression is thrown away.
+            if (candidate.Score >= bestScore.Score)
             {
-                best = candidate;
-                bestTailoredText = candidateText;
+                best = guarded.Layout;
+                bestScore = candidate;
+                foreach (var edit in guarded.Applied)
+                {
+                    reasons[edit.LineId] = edit.Reason;
+                }
             }
 
             // The next pass would rewrite this rewrite, so a pass that didn't
-            // improve is the signal the resume has given the posting everything
-            // it has — continuing just drifts further from the original.
+            // improve means the resume has given the posting everything it honestly can.
             if (!improved)
             {
                 await AddStepAsync(
                     run,
                     "Stopped rewriting",
-                    "That pass didn't score better than the previous version, so this is as close a fit as your experience supports.",
+                    "That pass didn't score better than the one before it, so this is as close a fit as your experience supports.",
                     null,
                     cancellationToken);
                 break;
             }
         }
 
-        application.TailoredResumeText = bestTailoredText;
-        run.FinalScore = best.Score;
-        run.ReadyToApply = best.Score >= run.TargetScore;
+        var changes = Diff(baseLayout, best, reasons);
 
-        var coverLetter = await coverLetters.GenerateAsync(
-            bestTailoredText ?? resume.Content,
-            jobDescription,
-            application.RoleTitle,
-            application.CompanyName,
-            cancellationToken);
-        application.CoverLetterText = coverLetter;
+        if (changes.Count > 0)
+        {
+            var unsupported = (await auditor.AuditAsync(baseLayout, resume.ExtraFacts, changes, cancellationToken))
+                .Where(u => changes.Any(c => c.LineId == u.LineId))
+                .GroupBy(u => u.LineId)
+                .Select(g => g.First())
+                .ToList();
 
-        await AddStepAsync(
-            run,
-            "Wrote your cover letter",
-            bestTailoredText is null
-                ? "Written against your active resume."
-                : "Written against the tailored version, so it echoes the same framing.",
-            null,
-            cancellationToken);
+            if (unsupported.Count == 0)
+            {
+                await AddStepAsync(
+                    run,
+                    "Checked every change against your real experience",
+                    "Nothing claims more than your resume backs up.",
+                    null,
+                    cancellationToken);
+            }
+            else
+            {
+                foreach (var claim in unsupported)
+                {
+                    best = best.WithLine(baseLayout.Find(claim.LineId)!);
+                }
+                changes = Diff(baseLayout, best, reasons);
+
+                bestScore = await ScoreAsync(run, resume.Id, best, usedTailoredResume: changes.Count > 0, cancellationToken);
+                await AddStepAsync(
+                    run,
+                    $"Put back {Lines(unsupported.Count)} that overstated your experience",
+                    string.Join(" ", unsupported.Select(u => $"{u.LineId}: {u.Reason}.")),
+                    bestScore.Score,
+                    cancellationToken);
+            }
+        }
+
+        run.FinalScore = bestScore.Score;
+
+        var draft = await reviewer.ReviewAsync(
+            best.ToPlainText(), baseline.Score, bestScore.Score, run.TargetScore, context, cancellationToken);
+
+        var verdict = FitVerdicts.From(bestScore.Score, draft.Dealbreakers.Count);
+        run.Review = new ResumeReview
+        {
+            Verdict = verdict,
+            RealityCheck = draft.RealityCheck,
+            ScoreCeiling = draft.ScoreCeiling,
+            Dealbreakers = draft.Dealbreakers,
+            Strengths = draft.Strengths,
+            Gaps = draft.Gaps,
+            WorkOn = draft.WorkOn,
+        };
+        run.Changes = changes;
+        run.ReadyToApply = bestScore.Score >= run.TargetScore && draft.Dealbreakers.Count == 0;
+
+        // Always stored, even untouched: the download is drawn from this, and
+        // "your resume already fits" still needs a file to upload.
+        application.TailoredResumeLayout = best;
+        application.TailoredResumeText = best.ToPlainText();
+
+        await AddStepAsync(run, "Wrote your reality check", draft.RealityCheck, null, cancellationToken);
 
         run.Status = PrepRunStatus.Succeeded;
         run.CompletedAtUtc = DateTime.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task RecordScoreAsync(
-        PrepRun run, Guid resumeId, MatchAnalysis analysis, bool usedTailoredResume, CancellationToken cancellationToken)
+    private async Task<MatchAnalysis> ScoreAsync(
+        PrepRun run, Guid resumeId, ResumeLayout layout, bool usedTailoredResume, CancellationToken cancellationToken)
     {
+        var application = run.Application;
+        var analysis = await analyzer.AnalyzeAsync(
+            layout.ToPlainText(),
+            application.JobDescriptionText!,
+            application.RoleTitle,
+            application.CompanyName,
+            cancellationToken);
+
         db.MatchResults.Add(new MatchResult
         {
             Id = Guid.NewGuid(),
@@ -179,7 +263,22 @@ public class ApplicationPrepRunner(
         });
 
         await db.SaveChangesAsync(cancellationToken);
+        return analysis;
     }
+
+    private static List<ResumeChange> Diff(
+        ResumeLayout baseLayout, ResumeLayout tailored, IReadOnlyDictionary<string, string> reasons) =>
+        baseLayout.Lines
+            .Where(l => l.Editable)
+            .Select(l => (Before: l.EditableText!, After: tailored.Find(l.Id)?.EditableText ?? l.EditableText!, l.Id))
+            .Where(x => x.Before != x.After)
+            .Select(x => new ResumeChange(x.Id, x.Before, x.After, reasons.GetValueOrDefault(x.Id, "")))
+            .ToList();
+
+    private static string Lines(int count) => count == 1 ? "1 line" : $"{count} lines";
+
+    private static string Summarize(IReadOnlyList<RejectedEdit> rejected) =>
+        string.Join(" ", rejected.Take(4).Select(r => $"{r.LineId} — {r.Why}"));
 
     private async Task AddStepAsync(
         PrepRun run, string label, string detail, int? score, CancellationToken cancellationToken)
@@ -199,10 +298,4 @@ public class ApplicationPrepRunner(
         run.CompletedAtUtc = DateTime.UtcNow;
         await db.SaveChangesAsync(CancellationToken.None);
     }
-
-    /// <summary>
-    /// Each pass is two model calls, and gains flatten fast — the rewrite can
-    /// only reframe experience the resume already has, not add any.
-    /// </summary>
-    private const int MaxIterations = 3;
 }

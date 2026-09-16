@@ -146,6 +146,45 @@ async function requestFile<T>(path: string, formData: FormData): Promise<T> {
   return handleResponse<T>(response, token !== null)
 }
 
+/**
+ * Downloads an authorized file. A plain <a download> can't send the bearer
+ * token, so this fetches the bytes and hands the browser an object URL, keeping
+ * the server's filename.
+ */
+async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const headers = new Headers()
+  const token = auth.token
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  let response: Response
+  try {
+    response = await fetch(path, { headers })
+  } catch {
+    throw new ApiError(0, UNREACHABLE_MESSAGE)
+  }
+
+  if (!response.ok) {
+    noteUnauthorized(response.status, token !== null)
+    throw new ApiError(response.status, `Couldn't build that file (${response.status}).`)
+  }
+
+  const disposition = response.headers.get('Content-Disposition') ?? ''
+  const name =
+    /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1] ??
+    /filename="?([^";]+)"?/i.exec(disposition)?.[1] ??
+    fallbackName
+
+  const url = URL.createObjectURL(await response.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = decodeURIComponent(name)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  // Revoked on the next tick: some browsers start the download asynchronously.
+  setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
 export const api = {
   login(email: string, password: string) {
     return request<LoginResponse>('/api/auth/login', {
@@ -234,6 +273,23 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(input),
     })
+  },
+
+  updateResumeExtraFacts(id: string, extraFacts: string) {
+    return request<Resume>(`/api/resumes/${id}/extra-facts`, {
+      method: 'PUT',
+      body: JSON.stringify({ extraFacts }),
+    })
+  },
+
+  /** The base resume redrawn from its stored layout — what tailored versions start from. */
+  downloadResumePdf(id: string) {
+    return downloadFile(`/api/resumes/${id}/pdf`, 'Resume.pdf')
+  },
+
+  /** The tailored resume, in the base resume's exact format. */
+  downloadTailoredResumePdf(applicationId: string) {
+    return downloadFile(`/api/applications/${applicationId}/resume.pdf`, 'Resume.pdf')
   },
 
   setActiveResume(id: string) {

@@ -119,11 +119,26 @@ public class ApplicationService(AppDbContext db, IInterviewCalendarSync calendar
             return null;
         }
 
-        application.TailoredResumeText = NormalizeOptional(request.TailoredResumeText);
+        // A layout-tailored resume's text is derived from the layout the PDF is
+        // drawn from; letting it be edited separately would make the download
+        // and the text disagree.
+        if (application.TailoredResumeLayout is null)
+        {
+            application.TailoredResumeText = NormalizeOptional(request.TailoredResumeText);
+        }
         application.CoverLetterText = NormalizeOptional(request.CoverLetterText);
 
         await db.SaveChangesAsync();
         return ToResponse(application, includeHistory: true);
+    }
+
+    public async Task<(ResumeLayout Layout, string CompanyName)?> GetTailoredResumeAsync(Guid userId, Guid id)
+    {
+        var application = await db.Applications.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.UserId == userId && a.Id == id);
+        return application?.TailoredResumeLayout is null
+            ? null
+            : (application.TailoredResumeLayout, application.CompanyName);
     }
 
     public async Task<bool> DeleteAsync(Guid userId, Guid id)

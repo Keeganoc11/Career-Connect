@@ -12,7 +12,10 @@ public interface IResumeService
     Task<ResumeResponse?> GetActiveAsync(Guid userId);
     Task<ResumeResponse> CreateAsync(Guid userId, SaveResumeRequest request);
     Task<ResumeUploadOutcome> CreateFromFileAsync(Guid userId, Stream file, string fileName, string? label);
-    Task<ResumeResponse?> UpdateAsync(Guid userId, Guid id, SaveResumeRequest request);
+    Task<ResumeUpdateOutcome> UpdateAsync(Guid userId, Guid id, SaveResumeRequest request);
+    Task<ResumeResponse?> UpdateExtraFactsAsync(Guid userId, Guid id, string? extraFacts);
+    /// <summary>The resume drawn in its own layout, or null when it has none (or doesn't exist).</summary>
+    Task<(ResumeLayout Layout, string Label)?> GetLayoutAsync(Guid userId, Guid id);
     Task<ResumeResponse?> SetActiveAsync(Guid userId, Guid id);
     Task<DeleteResumeOutcome> DeleteAsync(Guid userId, Guid id);
 }
@@ -25,13 +28,24 @@ public enum DeleteResumeOutcome
     HasMatchResults
 }
 
+public abstract record ResumeUpdateOutcome
+{
+    public sealed record Updated(ResumeResponse Resume) : ResumeUpdateOutcome;
+    public sealed record NotFound : ResumeUpdateOutcome;
+    /// <summary>The text comes from an uploaded PDF's layout; editing it here would split the two.</summary>
+    public sealed record LayoutLocked : ResumeUpdateOutcome;
+}
+
 public abstract record ResumeUploadOutcome
 {
     public sealed record Success(ResumeResponse Resume) : ResumeUploadOutcome;
     public sealed record Failed(string Message) : ResumeUploadOutcome;
 }
 
-public class ResumeService(AppDbContext db, IResumeFileTextExtractor extractor) : IResumeService
+public class ResumeService(
+    AppDbContext db,
+    IResumeFileTextExtractor extractor,
+    IResumeLayoutReader layoutReader) : IResumeService
 {
     private const int MinContentLength = 50;
 
@@ -47,6 +61,7 @@ public class ResumeService(AppDbContext db, IResumeFileTextExtractor extractor) 
                 Label = r.Label,
                 IsActive = r.IsActive,
                 CharacterCount = r.Content.Length,
+                HasLayout = r.Layout != null,
                 UpdatedAtUtc = r.UpdatedAtUtc,
             })
             .ToListAsync();
@@ -92,10 +107,14 @@ public class ResumeService(AppDbContext db, IResumeFileTextExtractor extractor) 
     public async Task<ResumeUploadOutcome> CreateFromFileAsync(
         Guid userId, Stream file, string fileName, string? label)
     {
+        using var buffer = new MemoryStream();
+        await file.CopyToAsync(buffer);
+        var bytes = buffer.ToArray();
+
         string? text;
         try
         {
-            text = extractor.Extract(file, fileName);
+            text = extractor.Extract(new MemoryStream(bytes), fileName);
         }
         catch (Exception)
         {
@@ -106,6 +125,29 @@ public class ResumeService(AppDbContext db, IResumeFileTextExtractor extractor) 
         if (text is null)
         {
             return new ResumeUploadOutcome.Failed("Only .pdf and .docx files are supported.");
+        }
+
+        // A PDF is also read as positioned lines, which is what lets tailoring
+        // hand back a file in this exact format. When that works its text is
+        // the cleaner of the two, so it becomes the stored content too.
+        ResumeLayout? layout = null;
+        string? layoutWarning = null;
+        if (Path.GetExtension(fileName).Equals(".pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            switch (layoutReader.Read(bytes))
+            {
+                case ResumeLayoutReadOutcome.Success success:
+                    layout = success.Layout;
+                    text = layout.ToPlainText();
+                    break;
+                case ResumeLayoutReadOutcome.Failed failed:
+                    layoutWarning = failed.Message;
+                    break;
+            }
+        }
+        else
+        {
+            layoutWarning = "Tailored resumes are drawn in your uploaded PDF's exact format, so upload a PDF to use tailoring.";
         }
 
         if (text.Trim().Length < MinContentLength)
@@ -125,16 +167,46 @@ public class ResumeService(AppDbContext db, IResumeFileTextExtractor extractor) 
             resolvedLabel = resolvedLabel[..200];
         }
 
-        var resume = await CreateAsync(userId, new SaveResumeRequest
+        var created = await CreateAsync(userId, new SaveResumeRequest
         {
             Label = resolvedLabel,
             Content = text.Trim(),
         });
 
-        return new ResumeUploadOutcome.Success(resume);
+        if (layout is not null)
+        {
+            var resume = await db.Resumes.FirstAsync(r => r.Id == created.Id);
+            resume.Layout = layout;
+            await db.SaveChangesAsync();
+            created = ToResponse(resume);
+        }
+
+        return new ResumeUploadOutcome.Success(created with { LayoutWarning = layoutWarning });
     }
 
-    public async Task<ResumeResponse?> UpdateAsync(Guid userId, Guid id, SaveResumeRequest request)
+    public async Task<ResumeUpdateOutcome> UpdateAsync(Guid userId, Guid id, SaveResumeRequest request)
+    {
+        var resume = await db.Resumes.FirstOrDefaultAsync(r => r.UserId == userId && r.Id == id);
+        if (resume is null)
+        {
+            return new ResumeUpdateOutcome.NotFound();
+        }
+
+        var content = request.Content.Trim();
+        if (resume.Layout is not null && content != resume.Content)
+        {
+            return new ResumeUpdateOutcome.LayoutLocked();
+        }
+
+        resume.Label = request.Label.Trim();
+        resume.Content = content;
+        resume.UpdatedAtUtc = DateTime.UtcNow;
+
+        await db.SaveChangesAsync();
+        return new ResumeUpdateOutcome.Updated(ToResponse(resume));
+    }
+
+    public async Task<ResumeResponse?> UpdateExtraFactsAsync(Guid userId, Guid id, string? extraFacts)
     {
         var resume = await db.Resumes.FirstOrDefaultAsync(r => r.UserId == userId && r.Id == id);
         if (resume is null)
@@ -142,12 +214,17 @@ public class ResumeService(AppDbContext db, IResumeFileTextExtractor extractor) 
             return null;
         }
 
-        resume.Label = request.Label.Trim();
-        resume.Content = request.Content.Trim();
+        resume.ExtraFacts = string.IsNullOrWhiteSpace(extraFacts) ? null : extraFacts.Trim();
         resume.UpdatedAtUtc = DateTime.UtcNow;
-
         await db.SaveChangesAsync();
         return ToResponse(resume);
+    }
+
+    public async Task<(ResumeLayout Layout, string Label)?> GetLayoutAsync(Guid userId, Guid id)
+    {
+        var resume = await db.Resumes.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.UserId == userId && r.Id == id);
+        return resume?.Layout is null ? null : (resume.Layout, resume.Label);
     }
 
     public async Task<ResumeResponse?> SetActiveAsync(Guid userId, Guid id)
@@ -214,6 +291,8 @@ public class ResumeService(AppDbContext db, IResumeFileTextExtractor extractor) 
         Label = r.Label,
         Content = r.Content,
         IsActive = r.IsActive,
+        HasLayout = r.Layout is not null,
+        ExtraFacts = r.ExtraFacts,
         CreatedAtUtc = r.CreatedAtUtc,
         UpdatedAtUtc = r.UpdatedAtUtc,
     };

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { MoreHorizontal, Star, Trash2, Upload } from 'lucide-react'
+import { Download, MoreHorizontal, Star, Trash2, Upload } from 'lucide-react'
 import { api } from '../api/client'
-import type { ResumeSummary } from '../api/types'
+import type { Resume, ResumeSummary } from '../api/types'
 import { formatRelative } from '../lib/format'
 import { errorMessage } from '../lib/errors'
 import { useAsyncAction } from '../lib/useAsyncAction'
@@ -35,6 +35,12 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
   const [content, setContent] = useState('')
   /** What's on the server, so "edited" is a comparison rather than a flag. */
   const [saved, setSaved] = useState({ label: '', content: '' })
+  /** Read from a PDF with its layout: the text is locked to the file, and tailoring can use it. */
+  const [hasLayout, setHasLayout] = useState(false)
+  const [extraFacts, setExtraFacts] = useState('')
+  const [savedFacts, setSavedFacts] = useState('')
+  /** Why an upload's exact format couldn't be kept, shown until another resume is opened. */
+  const [layoutWarning, setLayoutWarning] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ResumeSummary | null>(null)
   /** Held while the discard prompt is up, run if the user confirms. */
   const [pending, setPending] = useState<(() => void) | null>(null)
@@ -45,6 +51,7 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
   const save = useAsyncAction()
   const upload = useAsyncAction()
   const deletion = useAsyncAction()
+  const download = useAsyncAction()
 
   const handleError = useCallback((e: unknown) => setError(errorMessage(e)), [])
 
@@ -63,7 +70,7 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
     void refresh()
   }, [refresh, dataVersion])
 
-  const dirty = label !== saved.label || content !== saved.content
+  const dirty = label !== saved.label || content !== saved.content || extraFacts !== savedFacts
 
   // The editor holds the only copy of unsaved text, so leaving the tab would
   // lose it outright.
@@ -80,20 +87,31 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
     else action()
   }
 
+  const load = (resume: Resume) => {
+    setEditingId(resume.id)
+    setLabel(resume.label)
+    setContent(resume.content)
+    setSaved({ label: resume.label, content: resume.content })
+    setHasLayout(resume.hasLayout)
+    setExtraFacts(resume.extraFacts ?? '')
+    setSavedFacts(resume.extraFacts ?? '')
+    setLayoutWarning(resume.layoutWarning ?? null)
+  }
+
   const startNew = () => {
     setEditingId(null)
     setLabel('')
     setContent('')
     setSaved({ label: '', content: '' })
+    setHasLayout(false)
+    setExtraFacts('')
+    setSavedFacts('')
+    setLayoutWarning(null)
   }
 
   const startEdit = async (id: string) => {
     try {
-      const resume = await api.getResume(id)
-      setEditingId(resume.id)
-      setLabel(resume.label)
-      setContent(resume.content)
-      setSaved({ label: resume.label, content: resume.content })
+      load(await api.getResume(id))
       // On a phone the editor sits below the list, so selecting a resume would
       // otherwise look like nothing happened.
       if (window.matchMedia('(max-width: 1023px)').matches) {
@@ -114,12 +132,10 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
     void upload.run(async () => {
       const created = await api.uploadResume(file)
       await refresh()
-      // Extracted text usually needs a clean-up pass, so land in the editor
-      // rather than filing it away silently.
-      setEditingId(created.id)
-      setLabel(created.label)
-      setContent(created.content)
-      setSaved({ label: created.label, content: created.content })
+      // Land in the editor rather than filing it away silently: a PDF whose
+      // format couldn't be kept says why there, and extracted text from any
+      // other file usually needs a clean-up pass.
+      load(created)
       toast.success(`“${created.label}” uploaded.`)
     })
   }
@@ -128,11 +144,19 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
     event.preventDefault()
     void save.run(async () => {
       const input = { label: label.trim(), content: content.trim() }
-      const result = editingId
-        ? await api.updateResume(editingId, input)
-        : await api.createResume(input)
+      const textChanged = input.label !== saved.label || input.content !== saved.content
+      const result =
+        editingId && !textChanged
+          ? { id: editingId }
+          : editingId
+            ? await api.updateResume(editingId, input)
+            : await api.createResume(input)
+      if (editingId && extraFacts !== savedFacts) {
+        await api.updateResumeExtraFacts(editingId, extraFacts)
+      }
       setEditingId(result.id)
       setSaved({ label: input.label, content: input.content })
+      setSavedFacts(extraFacts)
       await refresh()
       toast.success('Resume saved.')
     })
@@ -167,7 +191,7 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
       <div className="space-y-4">
         <PageHeader
           title="Resumes"
-          description="The active one is what new match scores are calculated against."
+          description="Your active resume is the base every tailored resume is built from. Upload it as a PDF so tailoring keeps its exact format."
           actions={
             <>
               <input
@@ -226,9 +250,24 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
           <div ref={editorRef}>
             <Card>
               <form onSubmit={submit} className="space-y-4">
-                <h2 className="text-base font-semibold text-fg">
-                  {editingId ? 'Edit resume' : 'New resume'}
-                </h2>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold text-fg">
+                    {editingId ? 'Edit resume' : 'New resume'}
+                  </h2>
+                  {editingId && hasLayout && (
+                    <Button
+                      size="sm"
+                      icon={<Download className="size-4" aria-hidden />}
+                      loading={download.busy}
+                      onClick={() => void download.run(() => api.downloadResumePdf(editingId))}
+                    >
+                      Download PDF
+                    </Button>
+                  )}
+                </div>
+
+                {layoutWarning && <Banner tone="warning">{layoutWarning}</Banner>}
+                {download.error && <Banner>{download.error}</Banner>}
 
                 <Field label="Label">
                   {(props) => (
@@ -250,7 +289,11 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
                       ? `At least ${MIN_CONTENT} characters are needed to score against a job description.`
                       : null
                   }
-                  hint={`${trimmed.toLocaleString()} characters`}
+                  hint={
+                    hasLayout
+                      ? 'Read from your PDF, format and all. To change it, edit the original and upload it again.'
+                      : `${trimmed.toLocaleString()} characters`
+                  }
                 >
                   {(props) => (
                     <Textarea
@@ -258,12 +301,31 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
                       monospace
                       rows={20}
                       value={content}
+                      readOnly={hasLayout}
                       onChange={(e) => setContent(e.target.value)}
                       placeholder="Paste the full text of your resume — experience, skills, education."
                       required
                     />
                   )}
                 </Field>
+
+                {hasLayout && (
+                  <Field
+                    label="Extra facts about you"
+                    hint="True things that don't fit on the page — tools you've used, what a project involved, scale. Tailoring can draw on these; it never invents anything beyond them."
+                  >
+                    {(props) => (
+                      <Textarea
+                        {...props}
+                        rows={5}
+                        maxLength={4000}
+                        value={extraFacts}
+                        onChange={(e) => setExtraFacts(e.target.value)}
+                        placeholder="e.g. Used Docker to run Postgres locally for Career Connect. Wrote 60+ xUnit tests for it."
+                      />
+                    )}
+                  </Field>
+                )}
 
                 {save.error && <Banner>{save.error}</Banner>}
 
@@ -341,6 +403,7 @@ function ResumeRow({
           <span className="flex items-center gap-2">
             <span className="truncate text-sm font-medium text-fg">{resume.label}</span>
             {resume.isActive && <Badge emphasis="accent">Active</Badge>}
+            {resume.hasLayout && <Badge>PDF format</Badge>}
           </span>
           <span className="mt-0.5 block text-xs text-fg-muted">
             {resume.characterCount.toLocaleString()} characters · {formatRelative(resume.updatedAtUtc)}

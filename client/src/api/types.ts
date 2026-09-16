@@ -107,9 +107,34 @@ export interface PrepRun {
   iterations: number
   steps: PrepStep[]
   readyToApply: boolean | null
+  /** The reality check. Null while running, on failure, and on runs from before it existed. */
+  review: ResumeReview | null
+  /** Lines the tailored resume changed from the base, with why. */
+  changes: ResumeChange[]
   errorMessage: string | null
   startedAtUtc: string
   completedAtUtc: string | null
+}
+
+export type FitVerdict = 'StrongFit' | 'WorthAShot' | 'Stretch' | 'NotAFit'
+export type GapSeverity = 'Dealbreaker' | 'Fixable' | 'Minor'
+export type GapFix = 'Resume' | 'Interview' | 'BuildSkill'
+
+export interface ResumeReview {
+  verdict: FitVerdict
+  realityCheck: string
+  scoreCeiling: string
+  dealbreakers: { requirement: string; why: string }[]
+  strengths: { point: string; evidence: string }[]
+  gaps: { requirement: string; severity: GapSeverity; fix: GapFix; advice: string }[]
+  workOn: { skill: string; why: string; nextStep: string }[]
+}
+
+export interface ResumeChange {
+  lineId: string
+  before: string
+  after: string
+  reason: string
 }
 
 export interface ApplicationInput {
@@ -137,6 +162,8 @@ export interface ResumeSummary {
   label: string
   isActive: boolean
   characterCount: number
+  /** Read from a PDF with its layout intact — the only kind tailoring can use. */
+  hasLayout: boolean
   updatedAtUtc: string
 }
 
@@ -145,6 +172,10 @@ export interface Resume {
   label: string
   content: string
   isActive: boolean
+  hasLayout: boolean
+  extraFacts: string | null
+  /** Set on upload only: why the file's exact format couldn't be kept. */
+  layoutWarning?: string | null
   createdAtUtc: string
   updatedAtUtc: string
 }

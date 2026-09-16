@@ -3,6 +3,7 @@ import { Check, Sparkles } from 'lucide-react'
 import { api } from '../api/client'
 import type { Application, PrepRun } from '../api/types'
 import { useAsyncAction } from '../lib/useAsyncAction'
+import { TailoringReview } from './TailoringReview'
 import {
   Badge,
   Banner,
@@ -161,7 +162,11 @@ export function PrepModal({
       toast.success('Edits saved.')
     })
 
-  const hasDocuments = resumeText.trim().length > 0 || coverLetterText.trim().length > 0
+  // A run with a review drew the resume from the base PDF's layout: the PDF is
+  // the document, and its text isn't editable separately from it.
+  const reviewed = current?.status === 'Succeeded' && current.review !== null
+  const showResumeText = !reviewed && resumeText.trim().length > 0
+  const hasDocuments = showResumeText || coverLetterText.trim().length > 0
   const edited = editedRef.current && !savedEdits
 
   const rerun = () => {
@@ -215,7 +220,7 @@ export function PrepModal({
           {!current && !start.busy && (
             <EmptyState
               title="Nothing prepped for this role yet"
-              description="This rewrites your active resume against the posting, re-scores it until it clears the target, and writes a matching cover letter. Takes a couple of minutes."
+              description="This rewrites your active resume's wording against the posting — same format, still one page — re-scores it until it clears the target, then gives you a blunt reality check. Takes two or three minutes."
               action={
                 <Button
                   variant="primary"
@@ -231,7 +236,9 @@ export function PrepModal({
 
           {current && (
             <>
-              {current.status === 'Succeeded' && current.readyToApply && (
+              {reviewed && <TailoringReview applicationId={application.id} run={current} />}
+
+              {current.status === 'Succeeded' && !reviewed && current.readyToApply && (
                 <Banner tone="success">
                   {current.iterations === 0
                     ? `Your resume already scores ${current.finalScore} against this posting, so there was nothing worth rewriting.`
@@ -241,7 +248,7 @@ export function PrepModal({
                 </Banner>
               )}
 
-              {current.status === 'Succeeded' && !current.readyToApply && (
+              {current.status === 'Succeeded' && !reviewed && !current.readyToApply && (
                 <Banner tone="warning">
                   Got to {current.finalScore}, short of {current.targetScore}. Rewriting can only
                   reframe experience you already have, so the gaps are real ones — worth a look
@@ -298,7 +305,7 @@ export function PrepModal({
 
               {hasDocuments && (
                 <div className="space-y-5 border-t border-line pt-5">
-                  {resumeText && (
+                  {showResumeText && (
                     <DocumentPanel
                       title="Tailored resume"
                       value={resumeText}
@@ -332,7 +339,7 @@ export function PrepModal({
       {confirmingRerun && (
         <ConfirmDialog
           title="Run prep again?"
-          body="The tailored resume and cover letter below are replaced by a fresh pass, and any edits to them are lost."
+          body="The tailored resume and reality check are replaced by a fresh pass, and any edits to the documents below are lost."
           confirmLabel="Run prep again"
           busyLabel="Starting…"
           busy={start.busy}

@@ -48,6 +48,13 @@ builder.Services.AddScoped<ICopilotService, CopilotService>();
 // A prep pass chains several model calls, far past any sane HTTP timeout, so
 // the request only records the run and the background worker executes it.
 builder.Services.AddSingleton<IPrepRunQueue, PrepRunQueue>();
+builder.Services.AddSingleton<IResumeLayoutReader, ResumeLayoutReader>();
+builder.Services.AddSingleton<IResumeRenderer, ResumeRenderer>();
+builder.Services.AddSingleton<ClaudeStructuredCaller>();
+builder.Services.AddSingleton<IResumeLayoutTailorer, ClaudeResumeLayoutTailorer>();
+builder.Services.AddSingleton<IResumeClaimsAuditor, ClaudeResumeClaimsAuditor>();
+builder.Services.AddSingleton<IResumeReviewer, ClaudeResumeReviewer>();
+builder.Services.AddScoped<IResumeEditGuard, ResumeEditGuard>();
 builder.Services.AddScoped<IPrepRunService, PrepRunService>();
 builder.Services.AddScoped<IApplicationPrepRunner, ApplicationPrepRunner>();
 builder.Services.AddHostedService<PrepRunBackgroundService>();

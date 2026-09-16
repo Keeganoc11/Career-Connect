@@ -8,7 +8,7 @@ namespace CareerConnect.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/resumes")]
-public class ResumesController(IResumeService resumes) : ApiControllerBase
+public class ResumesController(IResumeService resumes, IResumeRenderer renderer) : ApiControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<ResumeSummaryResponse>>> List() =>
@@ -68,10 +68,41 @@ public class ResumesController(IResumeService resumes) : ApiControllerBase
     [HttpPut("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ResumeResponse>> Update(Guid id, SaveResumeRequest request)
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ResumeResponse>> Update(Guid id, SaveResumeRequest request) =>
+        await resumes.UpdateAsync(UserId, id, request) switch
+        {
+            ResumeUpdateOutcome.Updated updated => Ok(updated.Resume),
+            ResumeUpdateOutcome.LayoutLocked => Conflict(new ProblemDetails
+            {
+                Title = "This resume's text comes from its PDF",
+                Detail = "Editing it here would make the text and the PDF disagree. Upload an updated PDF instead.",
+                Status = StatusCodes.Status409Conflict,
+            }),
+            _ => NotFound(),
+        };
+
+    /// <summary>True things that don't fit on the page, for tailoring to draw on.</summary>
+    [HttpPut("{id:guid}/extra-facts")]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ResumeResponse>> UpdateExtraFacts(Guid id, UpdateExtraFactsRequest request)
     {
-        var updated = await resumes.UpdateAsync(UserId, id, request);
+        var updated = await resumes.UpdateExtraFactsAsync(UserId, id, request.ExtraFacts);
         return updated is null ? NotFound() : Ok(updated);
+    }
+
+    /// <summary>The resume redrawn from its stored layout — what every tailored version starts from.</summary>
+    [HttpGet("{id:guid}/pdf")]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Pdf(Guid id)
+    {
+        var found = await resumes.GetLayoutAsync(UserId, id);
+        if (found is not { } resume)
+        {
+            return NotFound();
+        }
+
+        return File(renderer.Render(resume.Layout), "application/pdf", $"{ResumeFileNames.Safe(resume.Label)}.pdf");
     }
 
     [HttpPatch("{id:guid}/active")]

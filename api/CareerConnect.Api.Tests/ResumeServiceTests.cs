@@ -8,13 +8,14 @@ public sealed class ResumeServiceTests : IDisposable
 {
     private readonly TestDatabase _fixture = new();
     private readonly FakeResumeFileTextExtractor _extractor = new();
+    private readonly FakeResumeLayoutReader _layoutReader = new();
     private readonly ResumeService _service;
     private readonly Guid _userId;
 
     public ResumeServiceTests()
     {
         _userId = _fixture.SeedUser("me@example.com");
-        _service = new ResumeService(_fixture.Db, _extractor);
+        _service = new ResumeService(_fixture.Db, _extractor, _layoutReader);
     }
 
     public void Dispose() => _fixture.Dispose();
@@ -106,6 +107,7 @@ public sealed class ResumeServiceTests : IDisposable
     [Fact]
     public async Task CreateFromFileAsync_CreatesResumeFromExtractedTextWithFilenameLabel()
     {
+        _layoutReader.Result = new ResumeLayoutReadOutcome.Failed("Unreadable layout.");
         using var stream = new MemoryStream();
 
         var outcome = await _service.CreateFromFileAsync(_userId, stream, "My Resume.pdf", label: null);
@@ -144,6 +146,7 @@ public sealed class ResumeServiceTests : IDisposable
     public async Task CreateFromFileAsync_FailsWhenExtractedTextIsTooShort()
     {
         _extractor.Result = "too short";
+        _layoutReader.Result = new ResumeLayoutReadOutcome.Failed("Unreadable layout.");
         using var stream = new MemoryStream();
 
         var outcome = await _service.CreateFromFileAsync(_userId, stream, "resume.pdf", label: null);
@@ -158,15 +161,95 @@ public sealed class ResumeServiceTests : IDisposable
     {
         var created = await _service.CreateAsync(_userId, Request("Primary"));
 
-        var updated = await _service.UpdateAsync(_userId, created.Id, new SaveResumeRequest
+        var outcome = await _service.UpdateAsync(_userId, created.Id, new SaveResumeRequest
         {
             Label = "Primary (tailored)",
             Content = new string('y', 300),
         });
 
-        Assert.NotNull(updated);
+        var updated = Assert.IsType<ResumeUpdateOutcome.Updated>(outcome).Resume;
         Assert.Equal("Primary (tailored)", updated.Label);
         Assert.Equal(300, updated.Content.Length);
         Assert.True(updated.IsActive);
+    }
+
+    [Fact]
+    public async Task CreateFromFileAsync_KeepsThePdfLayout_AndTakesItsTextAsTheContent()
+    {
+        using var stream = new MemoryStream();
+
+        var outcome = await _service.CreateFromFileAsync(_userId, stream, "resume.pdf", label: null);
+
+        var resume = Assert.IsType<ResumeUploadOutcome.Success>(outcome).Resume;
+        Assert.True(resume.HasLayout);
+        Assert.Null(resume.LayoutWarning);
+        Assert.Equal(TestResumes.Layout().ToPlainText(), resume.Content);
+        var stored = await _fixture.Db.Resumes.AsNoTracking().FirstAsync(r => r.Id == resume.Id);
+        Assert.Equal(TestResumes.Layout().Lines.Count, stored.Layout!.Lines.Count);
+    }
+
+    [Fact]
+    public async Task CreateFromFileAsync_StillSavesThePdf_WhenItsLayoutCantBeRead_AndSaysWhy()
+    {
+        _layoutReader.Result = new ResumeLayoutReadOutcome.Failed("This resume uses Calibri.");
+        using var stream = new MemoryStream();
+
+        var outcome = await _service.CreateFromFileAsync(_userId, stream, "resume.pdf", label: null);
+
+        var resume = Assert.IsType<ResumeUploadOutcome.Success>(outcome).Resume;
+        Assert.False(resume.HasLayout);
+        Assert.Equal("This resume uses Calibri.", resume.LayoutWarning);
+    }
+
+    [Fact]
+    public async Task CreateFromFileAsync_WarnsThatAWordFileCantBeTailored()
+    {
+        using var stream = new MemoryStream();
+
+        var outcome = await _service.CreateFromFileAsync(_userId, stream, "resume.docx", label: null);
+
+        var resume = Assert.IsType<ResumeUploadOutcome.Success>(outcome).Resume;
+        Assert.False(resume.HasLayout);
+        Assert.Contains("PDF", resume.LayoutWarning);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_RefusesToEditTheTextOfAResumeWithALayout()
+    {
+        var resume = _fixture.SeedResume(_userId, layout: TestResumes.Layout());
+
+        var outcome = await _service.UpdateAsync(_userId, resume.Id, new SaveResumeRequest
+        {
+            Label = "Primary",
+            Content = new string('y', 300),
+        });
+
+        Assert.IsType<ResumeUpdateOutcome.LayoutLocked>(outcome);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_StillRenamesAResumeWithALayout()
+    {
+        var resume = _fixture.SeedResume(_userId, layout: TestResumes.Layout());
+
+        var outcome = await _service.UpdateAsync(_userId, resume.Id, new SaveResumeRequest
+        {
+            Label = "Renamed",
+            Content = resume.Content,
+        });
+
+        Assert.Equal("Renamed", Assert.IsType<ResumeUpdateOutcome.Updated>(outcome).Resume.Label);
+    }
+
+    [Fact]
+    public async Task UpdateExtraFactsAsync_SavesTrimmedFacts_AndClearsBlankOnes()
+    {
+        var resume = _fixture.SeedResume(_userId, layout: TestResumes.Layout());
+
+        var saved = await _service.UpdateExtraFactsAsync(_userId, resume.Id, "  Used Docker for local Postgres.  ");
+        Assert.Equal("Used Docker for local Postgres.", saved!.ExtraFacts);
+
+        var cleared = await _service.UpdateExtraFactsAsync(_userId, resume.Id, "   ");
+        Assert.Null(cleared!.ExtraFacts);
     }
 }

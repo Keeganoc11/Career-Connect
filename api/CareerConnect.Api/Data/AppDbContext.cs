@@ -28,6 +28,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             app.Property(a => a.CompanyName).HasMaxLength(200);
             app.Property(a => a.RoleTitle).HasMaxLength(200);
             app.Property(a => a.JobPostingUrl).HasMaxLength(2048);
+            app.Property(a => a.TailoredResumeLayout).HasJsonConversion();
             // Stored as strings: readable in the DB, and immune to enum reordering.
             app.Property(a => a.Status).HasConversion<string>().HasMaxLength(50);
 
@@ -57,6 +58,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<Resume>(resume =>
         {
             resume.Property(r => r.Label).HasMaxLength(200);
+            resume.Property(r => r.Layout).HasJsonConversion();
 
             resume.HasOne(r => r.User)
                   .WithMany(u => u.Resumes)
@@ -95,6 +97,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             run.Property(r => r.Status).HasConversion<string>().HasMaxLength(50);
             run.Property(r => r.Steps).HasPrepStepListConversion();
+            run.Property(r => r.Review).HasJsonConversion();
+            run.Property(r => r.Changes).HasJsonListConversion();
 
             run.HasOne(r => r.Application)
                .WithMany(a => a.PrepRuns)

@@ -13,6 +13,19 @@ public class Resume
     public required string Content { get; set; }
     public bool IsActive { get; set; }
 
+    /// <summary>
+    /// The uploaded PDF read into positioned lines. Present only for PDF
+    /// uploads it could read — it's what lets a tailored resume come out in the
+    /// original's exact format. Content is derived from it when it exists.
+    /// </summary>
+    public ResumeLayout? Layout { get; set; }
+
+    /// <summary>
+    /// True things about the candidate that don't fit on the page. Tailoring may
+    /// draw on them; the claims check treats them as evidence alongside the resume.
+    /// </summary>
+    public string? ExtraFacts { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 

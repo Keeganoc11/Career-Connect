@@ -21,6 +21,12 @@ public class Application
     /// maintains, not one throwaway variant per posting.</summary>
     public string? TailoredResumeText { get; set; }
 
+    /// <summary>
+    /// The tailored resume in the base resume's layout — what the PDF download
+    /// is drawn from. TailoredResumeText is its plain-text form.
+    /// </summary>
+    public ResumeLayout? TailoredResumeLayout { get; set; }
+
     public string? CoverLetterText { get; set; }
 
     /// <summary>Interview prep, as JSON. Persisted rather than regenerated on

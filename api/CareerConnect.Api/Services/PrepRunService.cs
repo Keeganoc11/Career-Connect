@@ -69,15 +69,23 @@ public class PrepRunService(
                 "Automated prep needs an Anthropic API key. See the README for setup.");
         }
 
-        var hasActiveResume = await db.Resumes
+        var activeResume = await db.Resumes
             .AsNoTracking()
-            .AnyAsync(r => r.UserId == userId && r.IsActive, cancellationToken);
+            .FirstOrDefaultAsync(r => r.UserId == userId && r.IsActive, cancellationToken);
 
-        if (!hasActiveResume)
+        if (activeResume is null)
         {
             return new PrepStartOutcome.Failed(
                 PrepStartFailureReason.NoActiveResume,
                 "Add a resume and mark it active before running prep.");
+        }
+
+        if (activeResume.Layout is null)
+        {
+            return new PrepStartOutcome.Failed(
+                PrepStartFailureReason.NoActiveResume,
+                "Tailoring keeps your resume's exact format, so it needs your resume as a PDF. " +
+                "Upload the PDF on the Resumes page and make it your active resume.");
         }
 
         var alreadyRunning = await db.PrepRuns

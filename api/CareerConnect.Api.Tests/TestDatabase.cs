@@ -86,14 +86,15 @@ public sealed class TestDatabase : IDisposable
         return interview;
     }
 
-    public Resume SeedResume(Guid userId, string label = "Primary", bool isActive = true)
+    public Resume SeedResume(Guid userId, string label = "Primary", bool isActive = true, ResumeLayout? layout = null)
     {
         var resume = new Resume
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             Label = label,
-            Content = new string('x', 200),
+            Content = layout?.ToPlainText() ?? new string('x', 200),
+            Layout = layout,
             IsActive = isActive,
             CreatedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow,
