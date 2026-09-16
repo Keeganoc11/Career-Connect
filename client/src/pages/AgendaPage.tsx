@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { Agenda, AgendaNudge, InterviewKind, NudgeKind, UpcomingInterview } from '../api/types'
 import { formatDateTime, formatUntil } from '../lib/format'
-import { useApiErrorHandler } from '../lib/useApiErrorHandler'
+import { errorMessage } from '../lib/errors'
 
 const KIND_LABELS: Record<InterviewKind, string> = {
   PhoneScreen: 'Phone screen',
@@ -22,7 +22,7 @@ const NUDGE_STYLES: Record<NudgeKind, { icon: string; ring: string; text: string
 }
 
 interface Props {
-  onLoggedOut: () => void
+  dataVersion: number
   onOpenTracker: () => void
 }
 
@@ -95,11 +95,12 @@ function NudgeRow({ nudge, onOpen }: { nudge: AgendaNudge; onOpen: () => void })
   )
 }
 
-export function AgendaPage({ onLoggedOut, onOpenTracker }: Props) {
+export function AgendaPage({ dataVersion, onOpenTracker }: Props) {
   const [agenda, setAgenda] = useState<Agenda | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const handleError = useApiErrorHandler(onLoggedOut, setError)
+  // Signing out on a 401 is handled once, inside api/client.
+  const handleError = useCallback((e: unknown) => setError(errorMessage(e)), [])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -113,15 +114,16 @@ export function AgendaPage({ onLoggedOut, onOpenTracker }: Props) {
     }
   }, [handleError])
 
+  // dataVersion changes when an email update moved something the agenda shows.
   useEffect(() => {
     void refresh()
-  }, [refresh])
+  }, [refresh, dataVersion])
 
   const nothingToDo =
     agenda && agenda.upcomingInterviews.length === 0 && agenda.nudges.length === 0
 
   return (
-    <main className="mx-auto max-w-6xl space-y-8 px-5 py-8">
+    <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-slate-900">Agenda</h1>
         <p className="mt-1.5 text-base text-slate-500">
@@ -177,6 +179,6 @@ export function AgendaPage({ onLoggedOut, onOpenTracker }: Props) {
           </ul>
         </section>
       )}
-    </main>
+    </div>
   )
 }

@@ -1,18 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, ApiError } from '../api/client'
+import { api } from '../api/client'
 import type {
   Application,
   ApplicationInput,
   ApplicationStatus,
   CopilotInsights,
   GmailConnectionStatus,
-  GmailScanResult,
   MatchResult,
   PrepRun,
   ResumeSummary,
-  InterviewKind,
-  SuggestedNewApplication,
-  SuggestedStatusUpdate,
   Summary,
   TailorResumeInput,
 } from '../api/types'
@@ -24,14 +20,31 @@ import { PrepModal } from '../components/PrepModal'
 import { CoverLetterModal } from '../components/CoverLetterModal'
 import { InterviewPrepModal } from '../components/InterviewPrepModal'
 import { InterviewsModal } from '../components/InterviewsModal'
-import { ConfirmDialog, toast } from '../components/ui'
 import { CopilotPanel } from '../components/CopilotPanel'
-import { GmailConnectControl } from '../components/GmailConnectControl'
-import { GmailSuggestionsModal } from '../components/GmailSuggestionsModal'
-import { useApiErrorHandler } from '../lib/useApiErrorHandler'
+import { ConfirmDialog, toast } from '../components/ui'
+import { errorMessage } from '../lib/errors'
 import { useAsyncAction } from '../lib/useAsyncAction'
+import type { TrackerIntent } from '../lib/trackerIntent'
 
-export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
+interface Props {
+  /** Bumped when something outside this page changed an application. */
+  dataVersion: number
+  /** A request from elsewhere to open one of this page's dialogs. */
+  intent: TrackerIntent | null
+  onIntentHandled: () => void
+  /** A prefilled application was actually created, so its suggestion is spent. */
+  onPrefilledSave: () => void
+  /** Drives the calendar-sync hint when scheduling an interview. */
+  gmailStatus: GmailConnectionStatus | null
+}
+
+export function TrackerPage({
+  dataVersion,
+  intent,
+  onIntentHandled,
+  onPrefilledSave,
+  gmailStatus,
+}: Props) {
   const [applications, setApplications] = useState<Application[]>([])
   const [summary, setSummary] = useState<Summary | null>(null)
   const [matches, setMatches] = useState<Record<string, MatchResult>>({})
@@ -52,21 +65,21 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [resumes, setResumes] = useState<ResumeSummary[]>([])
   const [tailoring, setTailoring] = useState(false)
   const [formTarget, setFormTarget] = useState<Application | null | 'new'>(null)
-  const [formPrefill, setFormPrefill] = useState<Partial<Pick<ApplicationInput, 'companyName' | 'roleTitle' | 'dateApplied'>> | undefined>(undefined)
+  const [formPrefill, setFormPrefill] = useState<
+    Partial<Pick<ApplicationInput, 'companyName' | 'roleTitle' | 'dateApplied'>> | undefined
+  >(undefined)
+  /** The open form was seeded from an email suggestion. */
+  const [fromPrefill, setFromPrefill] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Application | null>(null)
   const deletion = useAsyncAction()
-
-  const [gmailStatus, setGmailStatus] = useState<GmailConnectionStatus | null>(null)
-  const [gmailScanning, setGmailScanning] = useState(false)
-  const [gmailBanner, setGmailBanner] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
-  const [gmailScanResult, setGmailScanResult] = useState<GmailScanResult | null>(null)
-  const [reviewingGmailSuggestion, setReviewingGmailSuggestion] = useState<SuggestedNewApplication | null>(null)
 
   const [copilotInsights, setCopilotInsights] = useState<CopilotInsights | null>(null)
   const [copilotLoading, setCopilotLoading] = useState(false)
   const [copilotError, setCopilotError] = useState<string | null>(null)
 
-  const handleError = useApiErrorHandler(onLoggedOut, setLoadError)
+  // Signing out on a 401 is handled once, inside api/client; errorMessage
+  // returns null for it, so nothing renders on the way out.
+  const handleError = useCallback((e: unknown) => setLoadError(errorMessage(e)), [])
 
   const refresh = useCallback(async () => {
     try {
@@ -92,7 +105,50 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   useEffect(() => {
     void refresh()
-  }, [refresh])
+  }, [refresh, dataVersion])
+
+  /**
+   * Something elsewhere asked for a dialog — the header's Email updates, or
+   * later the agenda. Resolved against the loaded list, so an intent that
+   * arrives before the data does waits for it rather than being dropped.
+   */
+  useEffect(() => {
+    if (!intent) return
+
+    if (intent.kind === 'new') {
+      setFormPrefill(intent.prefill)
+      setFromPrefill(Boolean(intent.prefill))
+      setFormTarget('new')
+      onIntentHandled()
+      return
+    }
+
+    const application = applications.find((a) => a.id === intent.applicationId)
+    if (!application) return
+
+    switch (intent.kind) {
+      case 'edit':
+        setFormTarget(application)
+        break
+      case 'prep':
+        setPrepTarget({ application, autoStart: false })
+        break
+      case 'interviews':
+        setInterviewsTarget(application)
+        break
+      case 'interviewPrep':
+        setInterviewPrepTarget(application)
+        break
+      case 'coverLetter':
+        setCoverLetterTarget(application)
+        break
+      case 'open':
+        if (matches[application.id]) setMatchTarget(application)
+        else setFormTarget(application)
+        break
+    }
+    onIntentHandled()
+  }, [intent, applications, matches, onIntentHandled])
 
   // A prep pass keeps running server-side after its modal is closed, so the
   // table polls for itself — otherwise a row would sit on "Prepping…" until
@@ -123,167 +179,13 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
   }, [hasRunningPrep, refresh])
 
-  const loadGmailStatus = useCallback(async () => {
-    try {
-      const status = await api.getGmailStatus()
-      setGmailStatus(status)
-
-      // A scheduled background scan found something since we last checked —
-      // show it the same way a manual scan's results would appear.
-      if (status.hasPendingSuggestions) {
-        const pending = await api.getPendingGmailSuggestions()
-        if (pending) {
-          setGmailScanResult(pending)
-        }
-      }
-    } catch (e) {
-      handleError(e)
-    }
-  }, [handleError])
-
-  useEffect(() => {
-    void loadGmailStatus()
-  }, [loadGmailStatus])
-
-  // Land here after the Google OAuth redirect — read the outcome once, then
-  // strip the query string so a page refresh doesn't re-show the banner.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const gmailResult = params.get('gmail')
-    if (!gmailResult) return
-
-    if (gmailResult === 'connected') {
-      setGmailBanner({ tone: 'success', message: 'Gmail connected.' })
-      void loadGmailStatus()
-    } else if (gmailResult === 'error') {
-      setGmailBanner({
-        tone: 'error',
-        message: params.get('message') || 'Could not connect Gmail.',
-      })
-    }
-    window.history.replaceState({}, '', window.location.pathname)
-    // Intentionally runs once on mount — this reads the URL exactly once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const connectGmail = async () => {
-    try {
-      window.location.href = await api.getGmailAuthorizationUrl()
-    } catch (e) {
-      handleError(e)
-    }
-  }
-
-  const disconnectGmail = async () => {
-    try {
-      await api.disconnectGmail()
-      await loadGmailStatus()
-    } catch (e) {
-      handleError(e)
-    }
-  }
-
-  const scanGmail = async () => {
-    setGmailScanning(true)
-    setGmailBanner(null)
-    try {
-      const result = await api.scanGmail()
-      await loadGmailStatus()
-      if (
-        result.statusUpdates.length === 0 &&
-        result.newApplications.length === 0 &&
-        result.autoApplied.length === 0
-      ) {
-        setGmailBanner({ tone: 'success', message: 'No new updates found.' })
-      } else {
-        setGmailScanResult(result)
-        // Auto-applied confirmations already changed status server-side, so
-        // the table is stale until we pull it again.
-        if (result.autoApplied.length > 0) {
-          await refresh()
-        }
-      }
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        handleError(e)
-      } else {
-        setGmailBanner({ tone: 'error', message: e instanceof Error ? e.message : 'Scan failed.' })
-      }
-    } finally {
-      setGmailScanning(false)
-    }
-  }
-
-  // Only drop a suggestion from the list once the thing it promised actually
-  // happened — not the moment the user clicks toward it. Otherwise
-  // cancelling out of the follow-up form (or a failed status change) would
-  // silently discard a suggestion the user never actually acted on.
-  const acceptGmailSuggestion = async (
-    suggestion: SuggestedStatusUpdate,
-    interview?: { interviewAtUtc: string; interviewKind: InterviewKind },
-  ) => {
-    setBusyId(suggestion.applicationId)
-    try {
-      await api.acceptGmailSuggestion(suggestion.applicationId, suggestion.suggestedStatus, interview)
-      await refresh()
-      setGmailScanResult((current) =>
-        current && { ...current, statusUpdates: current.statusUpdates.filter((s) => s !== suggestion) },
-      )
-    } catch (e) {
-      handleError(e)
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  // Updates now stay on the server until they're dismissed, so hide one right
-  // away but put it back if the server didn't take the dismissal — otherwise
-  // it would quietly reappear on the next load with no sign anything failed.
-  const dismissGmailStatusUpdate = (suggestion: SuggestedStatusUpdate) => {
-    setGmailScanResult((current) =>
-      current && { ...current, statusUpdates: current.statusUpdates.filter((s) => s !== suggestion) },
-    )
-    void api.dismissGmailStatusUpdate(suggestion.applicationId, suggestion.suggestedStatus).catch((e: unknown) => {
-      setGmailScanResult((current) =>
-        current && { ...current, statusUpdates: [...current.statusUpdates, suggestion] },
-      )
-      handleError(e)
-    })
-  }
-
-  const dismissGmailNewApplication = (suggestion: SuggestedNewApplication) => {
-    setGmailScanResult((current) =>
-      current && { ...current, newApplications: current.newApplications.filter((s) => s !== suggestion) },
-    )
-    void api.dismissGmailNewApplication(suggestion.companyName).catch((e: unknown) => {
-      setGmailScanResult((current) =>
-        current && { ...current, newApplications: [...current.newApplications, suggestion] },
-      )
-      handleError(e)
-    })
-  }
-
-  const reviewNewApplicationFromGmail = (suggestion: SuggestedNewApplication) => {
-    setFormPrefill({
-      companyName: suggestion.companyName,
-      roleTitle: suggestion.roleTitle,
-      dateApplied: suggestion.emailReceivedAtUtc.slice(0, 10),
-    })
-    setReviewingGmailSuggestion(suggestion)
-    setFormTarget('new')
-  }
-
   const getCopilotInsights = async () => {
     setCopilotLoading(true)
     setCopilotError(null)
     try {
       setCopilotInsights(await api.getCopilotInsights())
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        handleError(e)
-      } else {
-        setCopilotError(e instanceof Error ? e.message : 'Could not get insights.')
-      }
+      setCopilotError(errorMessage(e))
     } finally {
       setCopilotLoading(false)
     }
@@ -337,11 +239,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
       // "so what should I change?", which is the point of running it.
       setMatchTarget(application)
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        handleError(e)
-      } else {
-        setScoreError(e instanceof Error ? e.message : 'Scoring failed.')
-      }
+      setScoreError(errorMessage(e))
     } finally {
       setScoringId(null)
     }
@@ -362,12 +260,21 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
         await api.setActiveResume(saved.id)
       }
 
-      const [result, resumeList] = await Promise.all([api.scoreMatch(matchTarget.id), api.listResumes()])
+      const [result, resumeList] = await Promise.all([
+        api.scoreMatch(matchTarget.id),
+        api.listResumes(),
+      ])
       setMatches((current) => ({ ...current, [matchTarget.id]: result }))
       setResumes(resumeList)
     } finally {
       setTailoring(false)
     }
+  }
+
+  const closeForm = () => {
+    setFormTarget(null)
+    setFormPrefill(undefined)
+    setFromPrefill(false)
   }
 
   const save = async (input: ApplicationInput) => {
@@ -377,18 +284,11 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
     } else if (formTarget) {
       await api.updateApplication(formTarget.id, input)
     }
-    if (reviewingGmailSuggestion) {
-      const consumed = reviewingGmailSuggestion
-      setGmailScanResult((current) =>
-        current && { ...current, newApplications: current.newApplications.filter((s) => s !== consumed) },
-      )
-      setReviewingGmailSuggestion(null)
-      // Clear the saved copy too. Failing quietly is fine here: reading the
-      // updates also drops any company that's now tracked.
-      void api.dismissGmailNewApplication(consumed.companyName).catch(() => {})
+
+    if (created && fromPrefill) {
+      onPrefilledSave()
     }
-    setFormTarget(null)
-    setFormPrefill(undefined)
+    closeForm()
 
     // The whole point of capturing a posting is to prep against it, so a new
     // one with a description goes straight into the pipeline rather than
@@ -413,6 +313,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
     const succeeded = await changeStatus(prepTarget.application.id, 'Applied')
     if (succeeded) {
       setPrepTarget(null)
+      toast.success('Marked as applied.')
     }
   }
 
@@ -428,9 +329,15 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
       toast.success(`${companyName} deleted.`)
     })
 
+  const startNewApplication = () => {
+    setFormPrefill(undefined)
+    setFromPrefill(false)
+    setFormTarget('new')
+  }
+
   return (
     <>
-      <main className="mx-auto max-w-6xl space-y-6 px-5 py-8">
+      <div className="space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">Applications</h1>
@@ -440,11 +347,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
           </div>
           <button
             type="button"
-            onClick={() => {
-              setFormPrefill(undefined)
-              setReviewingGmailSuggestion(null)
-              setFormTarget('new')
-            }}
+            onClick={startNewApplication}
             className="brand-gradient rounded-xl px-5 py-3 text-base font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:opacity-95"
           >
             + Add application
@@ -452,11 +355,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
         </div>
 
         {summary && (
-          <SummaryBar
-            summary={summary}
-            activeFilter={statusFilter}
-            onFilterChange={setStatusFilter}
-          />
+          <SummaryBar summary={summary} activeFilter={statusFilter} onFilterChange={setStatusFilter} />
         )}
 
         <CopilotPanel
@@ -469,61 +368,31 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
           onOpenApplication={openApplicationFromCopilot}
         />
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative w-full max-w-sm">
-              <span
-                className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                aria-hidden
-              >
-                ⌕
-              </span>
-              <input
-                type="search"
-                placeholder="Search company or role…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-4 text-base placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15"
-              />
-            </div>
-            <span className="text-sm font-medium text-slate-500">
-              {visible.length} of {applications.length} shown
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative w-full max-w-sm">
+            <span
+              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+              aria-hidden
+            >
+              ⌕
             </span>
+            <input
+              type="search"
+              placeholder="Search company or role…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-4 text-base placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15"
+            />
           </div>
-
-          <GmailConnectControl
-            status={gmailStatus}
-            scanning={gmailScanning}
-            onConnect={() => void connectGmail()}
-            onScan={() => void scanGmail()}
-            onDisconnect={() => void disconnectGmail()}
-          />
+          <span className="text-sm font-medium text-slate-500">
+            {visible.length} of {applications.length} shown
+          </span>
         </div>
 
         {loadError && applications.length > 0 && (
           <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-base font-medium text-rose-700">
             {loadError}
           </p>
-        )}
-
-        {gmailBanner && (
-          <div
-            className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-base font-medium ${
-              gmailBanner.tone === 'success'
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                : 'border-rose-200 bg-rose-50 text-rose-700'
-            }`}
-          >
-            <span>{gmailBanner.message}</span>
-            <button
-              type="button"
-              onClick={() => setGmailBanner(null)}
-              aria-label="Dismiss"
-              className="shrink-0 rounded-lg px-2 py-0.5 font-bold opacity-70 hover:opacity-100"
-            >
-              ✕
-            </button>
-          </div>
         )}
 
         {scoreError && (
@@ -549,7 +418,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
             <p className="text-lg font-bold text-rose-800">Couldn't load your applications</p>
             <p className="mx-auto mt-2 max-w-md text-base text-rose-700">{loadError}</p>
             <p className="mx-auto mt-3 max-w-md text-sm text-rose-600">
-              Your data is safe on disk — this only means the app can't reach the server right now.
+              Your data is safe — this only means the app can't reach the server right now.
             </p>
             <button
               type="button"
@@ -575,11 +444,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
             {applications.length === 0 && (
               <button
                 type="button"
-                onClick={() => {
-                  setFormPrefill(undefined)
-                  setReviewingGmailSuggestion(null)
-                  setFormTarget('new')
-                }}
+                onClick={startNewApplication}
                 className="brand-gradient mt-6 rounded-xl px-5 py-3 text-base font-semibold text-white shadow-lg shadow-brand-600/25"
               >
                 + Add your first application
@@ -604,20 +469,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
             onDelete={(application) => setDeleteTarget(application)}
           />
         )}
-      </main>
-
-      {gmailScanResult && (
-        <GmailSuggestionsModal
-          statusUpdates={gmailScanResult.statusUpdates}
-          newApplications={gmailScanResult.newApplications}
-          autoApplied={gmailScanResult.autoApplied}
-          onAcceptStatusUpdate={acceptGmailSuggestion}
-          onDismissStatusUpdate={dismissGmailStatusUpdate}
-          onAddNewApplication={reviewNewApplicationFromGmail}
-          onDismissNewApplication={dismissGmailNewApplication}
-          onClose={() => setGmailScanResult(null)}
-        />
-      )}
+      </div>
 
       {matchTarget && matches[matchTarget.id] && (
         <MatchDetailModal
@@ -676,11 +528,7 @@ export function TrackerPage({ onLoggedOut }: { onLoggedOut: () => void }) {
           application={formTarget === 'new' ? null : formTarget}
           prefill={formTarget === 'new' ? formPrefill : undefined}
           onSave={save}
-          onClose={() => {
-            setFormTarget(null)
-            setFormPrefill(undefined)
-            setReviewingGmailSuggestion(null)
-          }}
+          onClose={closeForm}
         />
       )}
 

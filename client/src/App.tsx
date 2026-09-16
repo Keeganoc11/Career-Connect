@@ -1,43 +1,36 @@
-import { useState } from 'react'
-import { auth } from './api/client'
-import { AppShell, type View } from './components/AppShell'
+import { useEffect, useState } from 'react'
+import { auth, setUnauthorizedHandler } from './api/client'
 import { LoginPage } from './pages/LoginPage'
-import { AgendaPage } from './pages/AgendaPage'
-import { TrackerPage } from './pages/TrackerPage'
-import { ResumesPage } from './pages/ResumesPage'
+import { Workspace } from './components/Workspace'
 
 /**
- * Agenda is the natural landing — "what needs attention today" is why you open
- * a job tracker. The exception is Google's OAuth redirect: TrackerPage reads
- * ?gmail= off the URL to finish connecting, so it has to be the mounted view
- * when we come back from consent.
+ * Nothing but the auth gate now. Navigation and the Gmail connection moved
+ * into Workspace, which also removed the special case that landed the app on
+ * the tracker when returning from Google — the OAuth return is handled by
+ * useGmailConnection wherever you happen to be, so the app always opens on the
+ * agenda.
  */
-function initialView(): View {
-  return new URLSearchParams(window.location.search).has('gmail') ? 'tracker' : 'agenda'
-}
-
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(() => auth.token !== null)
-  const [view, setView] = useState<View>(initialView)
 
-  const signOut = () => {
-    auth.clear()
-    setLoggedIn(false)
-  }
+  // One place decides what an expired session means. api/client clears the
+  // token and calls this; it only fires for requests that actually carried
+  // one, so a wrong password at the login screen is unaffected.
+  useEffect(() => {
+    setUnauthorizedHandler(() => setLoggedIn(false))
+    return () => setUnauthorizedHandler(null)
+  }, [])
 
   if (!loggedIn) {
     return <LoginPage onLoggedIn={() => setLoggedIn(true)} />
   }
 
-  const onLoggedOut = () => setLoggedIn(false)
-
   return (
-    <AppShell view={view} onViewChange={setView} onSignOut={signOut}>
-      {view === 'agenda' && (
-        <AgendaPage onLoggedOut={onLoggedOut} onOpenTracker={() => setView('tracker')} />
-      )}
-      {view === 'tracker' && <TrackerPage onLoggedOut={onLoggedOut} />}
-      {view === 'resumes' && <ResumesPage onLoggedOut={onLoggedOut} />}
-    </AppShell>
+    <Workspace
+      onSignOut={() => {
+        auth.clear()
+        setLoggedIn(false)
+      }}
+    />
   )
 }

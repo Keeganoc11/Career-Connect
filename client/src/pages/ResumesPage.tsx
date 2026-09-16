@@ -4,12 +4,12 @@ import type { ResumeSummary } from '../api/types'
 import { formatRelative } from '../lib/format'
 import { ConfirmDialog } from '../components/ui'
 import { fieldClass as inputClass } from '../lib/styles'
-import { useApiErrorHandler } from '../lib/useApiErrorHandler'
+import { errorMessage } from '../lib/errors'
 
 const MIN_CONTENT = 50
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
-export function ResumesPage({ onLoggedOut }: { onLoggedOut: () => void }) {
+export function ResumesPage({ dataVersion }: { dataVersion: number }) {
   const [resumes, setResumes] = useState<ResumeSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -24,7 +24,9 @@ export function ResumesPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
-  const handleError = useApiErrorHandler(onLoggedOut, setError)
+  // Signing out on a 401 is handled once, inside api/client; errorMessage
+  // returns null for it, so nothing is rendered on the way out.
+  const handleError = useCallback((e: unknown) => setError(errorMessage(e)), [])
 
   const refresh = useCallback(async () => {
     try {
@@ -37,9 +39,10 @@ export function ResumesPage({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
   }, [handleError])
 
+  // dataVersion changes when something outside this page edited resumes.
   useEffect(() => {
     void refresh()
-  }, [refresh])
+  }, [refresh, dataVersion])
 
   const startNew = () => {
     setEditingId(null)
@@ -137,7 +140,7 @@ export function ResumesPage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const justSaved = savedAt !== null && Date.now() - savedAt < 4000
 
   return (
-    <main className="mx-auto max-w-6xl px-5 py-8">
+    <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">Resumes</h1>
@@ -325,6 +328,6 @@ export function ResumesPage({ onLoggedOut }: { onLoggedOut: () => void }) {
           onCancel={() => setDeleteTarget(null)}
         />
       )}
-    </main>
+    </div>
   )
 }

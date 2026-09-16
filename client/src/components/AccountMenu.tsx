@@ -1,0 +1,171 @@
+import { useRef, useState } from 'react'
+import { LogOut } from 'lucide-react'
+import { auth } from '../api/client'
+import { formatRelative } from '../lib/format'
+import type { GmailConnection } from '../lib/useGmailConnection'
+import { Button, ConfirmDialog, Popover } from './ui'
+
+interface Props {
+  gmail: GmailConnection
+  onSignOut: () => void
+}
+
+/** A filled dot carrying on/off state, always beside a word that says the same thing. */
+function Dot({ on }: { on: boolean }) {
+  return (
+    <span
+      className={`inline-block size-1.5 rounded-full ${on ? 'bg-success' : 'bg-fg-subtle'}`}
+      aria-hidden
+    />
+  )
+}
+
+/**
+ * The one home for the Gmail integration.
+ *
+ * It replaces a control that lived in the applications table's toolbar, where
+ * an unlabelled ✕ sat beside "Check for updates" and disconnected Gmail on a
+ * single click — no confirmation, no acknowledgement, while a green "Gmail
+ * connected." banner stayed on screen. Here the state is always legible and
+ * disconnecting has to be confirmed.
+ */
+export function AccountMenu({ gmail, onSignOut }: Props) {
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
+
+  const { status } = gmail
+  const connected = status?.connected === true
+  const calendarOn = connected && status.calendarEnabled
+  // Connected but without the calendar scope is the one state worth flagging on
+  // the button itself: it looks like it's working and silently isn't.
+  const needsAttention = connected && !status.calendarEnabled
+  const initial = (auth.email ?? '?').trim().charAt(0).toUpperCase()
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => {
+          // Reopening re-reads the connection, so the panel can't show a state
+          // that changed in another tab.
+          if (!open) void gmail.refreshStatus()
+          setOpen((v) => !v)
+        }}
+        aria-label="Account and integrations"
+        aria-expanded={open}
+        className="relative inline-flex size-8 items-center justify-center rounded-full bg-surface-muted text-xs font-semibold text-fg ring-1 ring-line transition-colors hover:bg-line pointer-coarse:size-10"
+      >
+        {initial}
+        {needsAttention && (
+          <span
+            className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-warning ring-2 ring-surface"
+            aria-hidden
+          />
+        )}
+      </button>
+
+      {open && (
+        <Popover anchorRef={buttonRef} align="end" onClose={() => setOpen(false)}>
+          <div className="w-72 px-3 py-2">
+            <p className="text-xs text-fg-muted">Signed in as</p>
+            <p className="truncate text-sm font-medium text-fg">{auth.email}</p>
+          </div>
+
+          <div className="my-1 border-t border-line" role="separator" />
+
+          <div className="px-3 py-2">
+            {connected ? (
+              <>
+                <p className="flex items-center gap-1.5 text-sm font-medium text-fg">
+                  <Dot on /> Gmail connected
+                </p>
+                <p className="mt-0.5 truncate text-xs text-fg-muted">{status.connectedEmail}</p>
+                <p className="mt-1 text-xs text-fg-muted">
+                  Last checked{' '}
+                  {status.lastCheckedAtUtc ? formatRelative(status.lastCheckedAtUtc) : 'not yet'}
+                </p>
+
+                <p className="mt-3 flex items-center gap-1.5 text-sm font-medium text-fg">
+                  <Dot on={calendarOn} /> Calendar sync {calendarOn ? 'on' : 'off'}
+                </p>
+                <p className="mt-0.5 text-xs text-fg-muted">
+                  {calendarOn
+                    ? 'Interviews are added to your Google Calendar.'
+                    : 'Google can’t widen an existing connection, so this one has to be redone.'}
+                </p>
+                {!calendarOn && (
+                  <div className="mt-2">
+                    <Button size="sm" onClick={() => void gmail.connect()}>
+                      Reconnect Gmail
+                    </Button>
+                  </div>
+                )}
+
+                <div className="mt-3">
+                  <Button
+                    size="sm"
+                    tone="danger"
+                    onClick={() => {
+                      setOpen(false)
+                      setConfirmingDisconnect(true)
+                    }}
+                  >
+                    Disconnect Gmail…
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="flex items-center gap-1.5 text-sm font-medium text-fg">
+                  <Dot on={false} /> Gmail not connected
+                </p>
+                <p className="mt-1 text-xs text-fg-muted">
+                  Connect it and Career Connect reads your recent mail for application updates, and
+                  can put interviews on your Google Calendar.
+                </p>
+                <div className="mt-2">
+                  <Button size="sm" onClick={() => void gmail.connect()}>
+                    Connect Gmail
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="my-1 border-t border-line" role="separator" />
+
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              onSignOut()
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-fg transition-colors hover:bg-surface-muted"
+          >
+            <LogOut className="size-4" aria-hidden />
+            Sign out
+          </button>
+        </Popover>
+      )}
+
+      {confirmingDisconnect && (
+        <ConfirmDialog
+          title="Disconnect Gmail?"
+          body={`Career Connect will stop checking ${status?.connectedEmail ?? 'your inbox'} for updates, and won't add new interviews to Google Calendar. Interviews already on your calendar stay there.`}
+          confirmLabel="Disconnect Gmail"
+          busyLabel="Disconnecting…"
+          busy={gmail.disconnecting}
+          error={gmail.disconnectError}
+          onCancel={() => setConfirmingDisconnect(false)}
+          onConfirm={() => {
+            void gmail.disconnect().then((ok) => {
+              if (ok) setConfirmingDisconnect(false)
+            })
+          }}
+        />
+      )}
+    </>
+  )
+}

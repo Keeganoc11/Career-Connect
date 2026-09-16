@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, RefreshCw } from 'lucide-react'
 import type {
   AutoApplied,
   InterviewKind,
@@ -9,19 +9,13 @@ import type {
 import { STATUS_LABELS } from '../lib/status'
 import { formatRelative, fromDateTimeLocalValue, toDateTimeLocalValue } from '../lib/format'
 import { useAsyncAction } from '../lib/useAsyncAction'
+import type { GmailConnection } from '../lib/useGmailConnection'
 import { Button, Card, Checkbox, EmptyState, Input, Modal, StatusBadge } from './ui'
 
 interface Props {
-  statusUpdates: SuggestedStatusUpdate[]
-  newApplications: SuggestedNewApplication[]
-  autoApplied: AutoApplied[]
-  onAcceptStatusUpdate: (
-    suggestion: SuggestedStatusUpdate,
-    interview?: { interviewAtUtc: string; interviewKind: InterviewKind },
-  ) => Promise<void>
-  onDismissStatusUpdate: (suggestion: SuggestedStatusUpdate) => void
+  gmail: GmailConnection
+  /** Opens the Add application form pre-filled from a suggestion. */
   onAddNewApplication: (suggestion: SuggestedNewApplication) => void
-  onDismissNewApplication: (suggestion: SuggestedNewApplication) => void
   onClose: () => void
 }
 
@@ -221,34 +215,55 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 }
 
 /**
- * Renamed from "Gmail suggestions" per the glossary — these are email updates,
- * and what you do to one is accept or dismiss it. R4 moves this behind the
- * header's Email updates button and gives it a Check for updates action.
+ * Renamed from "Gmail suggestions" per the glossary, and moved out of the
+ * applications table's toolbar into the header. Closing it no longer loses
+ * anything: updates stay on the server until they're accepted or dismissed.
  */
-export function GmailSuggestionsModal({
-  statusUpdates,
-  newApplications,
-  autoApplied,
-  onAcceptStatusUpdate,
-  onDismissStatusUpdate,
-  onAddNewApplication,
-  onDismissNewApplication,
-  onClose,
-}: Props) {
+export function EmailUpdatesModal({ gmail, onAddNewApplication, onClose }: Props) {
+  const { status, updates } = gmail
+  const connected = status?.connected === true
+  const statusUpdates = updates?.statusUpdates ?? []
+  const newApplications = updates?.newApplications ?? []
+  const autoApplied = updates?.autoApplied ?? []
   const total = statusUpdates.length + newApplications.length + autoApplied.length
 
   return (
     <Modal
       title="Email updates"
       description="Found in your recent email — review each one before it's applied."
+      error={gmail.checkError}
       onClose={onClose}
-      footer={<Button onClick={onClose}>Close</Button>}
+      footerStart={
+        connected && (
+          <span className="text-xs text-fg-muted">
+            Last checked{' '}
+            {status.lastCheckedAtUtc ? formatRelative(status.lastCheckedAtUtc) : 'not yet'}
+          </span>
+        )
+      }
+      footer={
+        <>
+          {connected && (
+            <Button
+              icon={<RefreshCw className="size-4" aria-hidden />}
+              loading={gmail.checking}
+              onClick={() => void gmail.check()}
+            >
+              Check for updates
+            </Button>
+          )}
+          <Button onClick={onClose}>Close</Button>
+        </>
+      }
     >
-      {total === 0 ? (
+      {!connected ? (
         <EmptyState
-          title="All caught up"
-          description="Nothing left to review from this scan."
+          title="Gmail isn't connected"
+          description="Connect it and Career Connect reads your recent mail for application updates, and can put interviews on your Google Calendar."
+          action={<Button onClick={() => void gmail.connect()}>Connect Gmail</Button>}
         />
+      ) : total === 0 ? (
+        <EmptyState title="All caught up" description="Nothing is waiting for review." />
       ) : (
         <div className="space-y-6">
           {autoApplied.length > 0 && (
@@ -269,7 +284,7 @@ export function GmailSuggestionsModal({
                   key={`${suggestion.companyName}-${suggestion.emailSubject}`}
                   suggestion={suggestion}
                   onAdd={() => onAddNewApplication(suggestion)}
-                  onDismiss={() => onDismissNewApplication(suggestion)}
+                  onDismiss={() => gmail.dismissNewApplication(suggestion)}
                 />
               ))}
             </Section>
@@ -281,8 +296,8 @@ export function GmailSuggestionsModal({
                 <StatusUpdateCard
                   key={`${suggestion.applicationId}-${suggestion.emailSubject}`}
                   suggestion={suggestion}
-                  onAccept={(interview) => onAcceptStatusUpdate(suggestion, interview)}
-                  onDismiss={() => onDismissStatusUpdate(suggestion)}
+                  onAccept={(interview) => gmail.acceptStatusUpdate(suggestion, interview)}
+                  onDismiss={() => gmail.dismissStatusUpdate(suggestion)}
                 />
               ))}
             </Section>

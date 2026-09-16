@@ -1,59 +1,70 @@
 import { useEffect, type ReactNode } from 'react'
-import { auth } from '../api/client'
+import { Briefcase, CalendarDays, FileText, Mail } from 'lucide-react'
+import type { GmailConnection } from '../lib/useGmailConnection'
+import { AccountMenu } from './AccountMenu'
+import { BrandMark, IconButton } from './ui'
 
 export type View = 'agenda' | 'tracker' | 'resumes'
 
 interface Props {
   view: View
   onViewChange: (view: View) => void
+  gmail: GmailConnection
+  onOpenEmailUpdates: () => void
   onSignOut: () => void
   children: ReactNode
 }
 
-const tabs: { id: View; label: string; title: string }[] = [
-  { id: 'agenda', label: 'Agenda', title: 'Agenda · Career Connect' },
-  { id: 'tracker', label: 'Applications', title: 'Applications · Career Connect' },
-  { id: 'resumes', label: 'Resumes', title: 'Resumes · Career Connect' },
+const TABS: { id: View; label: string; title: string; icon: typeof CalendarDays }[] = [
+  { id: 'agenda', label: 'Agenda', title: 'Agenda · Career Connect', icon: CalendarDays },
+  { id: 'tracker', label: 'Applications', title: 'Applications · Career Connect', icon: Briefcase },
+  { id: 'resumes', label: 'Resumes', title: 'Resumes · Career Connect', icon: FileText },
 ]
 
-export function BrandMark({ size = 'md' }: { size?: 'md' | 'lg' }) {
-  const box = size === 'lg' ? 'size-14 text-xl rounded-2xl' : 'size-10 text-base rounded-xl'
-  return (
-    <div
-      className={`brand-gradient flex items-center justify-center font-extrabold tracking-tight text-white shadow-lg shadow-brand-600/30 ${box}`}
-      aria-hidden
-    >
-      CC
-    </div>
-  )
-}
-
-export function AppShell({ view, onViewChange, onSignOut, children }: Props) {
-  // Keep the browser tab title in step with the current view.
+/**
+ * One 56px row on desktop and a 48px bar plus a bottom tab bar on a phone,
+ * replacing a stacked header that cost about 129px before any content —
+ * a gradient rule, a brand block with a tagline, a nav row, and a second nav
+ * row below it on small screens.
+ */
+export function AppShell({
+  view,
+  onViewChange,
+  gmail,
+  onOpenEmailUpdates,
+  onSignOut,
+  children,
+}: Props) {
   useEffect(() => {
-    document.title = tabs.find((tab) => tab.id === view)?.title ?? 'Career Connect'
+    document.title = TABS.find((tab) => tab.id === view)?.title ?? 'Career Connect'
   }, [view])
 
+  const emailUpdates = (
+    <IconButton
+      label={
+        gmail.pendingCount > 0
+          ? `Email updates, ${gmail.pendingCount} needing review`
+          : 'Email updates'
+      }
+      icon={<Mail className="size-4" aria-hidden />}
+      count={gmail.pendingCount}
+      onClick={onOpenEmailUpdates}
+    />
+  )
+
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50">
-      <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 backdrop-blur">
-        {/* Thin gradient rule ties the whole chrome to the brand. */}
-        <div className="brand-gradient h-1 w-full" aria-hidden />
+    <div className="min-h-dvh bg-surface-muted">
+      <header className="sticky top-0 z-20 border-b border-line bg-surface">
+        <div className="mx-auto flex h-12 max-w-6xl items-center justify-between gap-4 px-4 sm:h-14">
+          <div className="flex min-w-0 items-center gap-6">
+            <span className="flex items-center gap-2">
+              <BrandMark className="size-6" />
+              <span className="text-sm font-semibold text-fg">Career Connect</span>
+            </span>
 
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-5 py-4">
-          <div className="flex items-center gap-8">
-            <div className="flex items-center gap-3">
-              <BrandMark />
-              <div className="leading-tight">
-                <div className="text-lg font-bold tracking-tight text-slate-900">
-                  Career<span className="brand-text-gradient">Connect</span>
-                </div>
-                <div className="text-xs font-medium text-slate-500">Job search, tracked</div>
-              </div>
-            </div>
-
+            {/* Text tabs on desktop; the phone gets the bottom bar instead. */}
             <nav aria-label="Main" className="hidden items-center gap-1 sm:flex">
-              {tabs.map((tab) => {
+              {TABS.map((tab) => {
                 const active = view === tab.id
                 return (
                   <button
@@ -61,16 +72,14 @@ export function AppShell({ view, onViewChange, onSignOut, children }: Props) {
                     type="button"
                     onClick={() => onViewChange(tab.id)}
                     aria-current={active ? 'page' : undefined}
-                    className={`relative rounded-xl px-4 py-2.5 text-base font-semibold transition ${
-                      active
-                        ? 'bg-brand-50 text-brand-700'
-                        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+                    className={`relative rounded-control px-3 py-1.5 text-sm transition-colors ${
+                      active ? 'font-medium text-fg' : 'text-fg-muted hover:text-fg'
                     }`}
                   >
                     {tab.label}
                     {active && (
                       <span
-                        className="brand-gradient absolute inset-x-3 -bottom-0.5 h-0.5 rounded-full"
+                        className="absolute inset-x-3 -bottom-[13px] h-0.5 rounded-full bg-accent"
                         aria-hidden
                       />
                     )}
@@ -80,49 +89,41 @@ export function AppShell({ view, onViewChange, onSignOut, children }: Props) {
             </nav>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="hidden text-sm font-medium text-slate-500 lg:inline">
-              {auth.email}
-            </span>
-            <button
-              type="button"
-              onClick={onSignOut}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
-            >
-              Sign out
-            </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {emailUpdates}
+            <AccountMenu gmail={gmail} onSignOut={onSignOut} />
           </div>
         </div>
-
-        {/* Nav collapses to its own row on small screens rather than disappearing. */}
-        <nav aria-label="Main" className="flex gap-1 border-t border-slate-100 px-5 py-2 sm:hidden">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => onViewChange(tab.id)}
-              aria-current={view === tab.id ? 'page' : undefined}
-              className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                view === tab.id ? 'bg-brand-50 text-brand-700' : 'text-slate-500'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
       </header>
 
-      <div className="flex-1">{children}</div>
+      {/* Bottom padding on small screens clears the fixed tab bar. */}
+      <main className="mx-auto max-w-6xl px-4 py-6 pb-24 sm:pb-8">{children}</main>
 
-      <footer className="border-t border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-5 py-5 text-sm text-slate-500">
-          <span>
-            <span className="font-semibold text-slate-700">Career Connect</span> — built with
-            ASP.NET&nbsp;Core, React, and Claude.
-          </span>
-          <span className="text-slate-400">Your data is private to your account.</span>
+      <nav
+        aria-label="Main"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] sm:hidden"
+      >
+        <div className="flex">
+          {TABS.map((tab) => {
+            const active = view === tab.id
+            const Icon = tab.icon
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => onViewChange(tab.id)}
+                aria-current={active ? 'page' : undefined}
+                className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-xs transition-colors ${
+                  active ? 'font-medium text-accent' : 'text-fg-muted'
+                }`}
+              >
+                <Icon className="size-5" aria-hidden />
+                {tab.label}
+              </button>
+            )
+          })}
         </div>
-      </footer>
+      </nav>
     </div>
   )
 }
