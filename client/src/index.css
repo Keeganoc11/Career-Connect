@@ -103,21 +103,3 @@
     outline-offset: 2px;
   }
 }
-
-/*
- * TEMP — remove in R8, once every component has moved to the new primitives.
- * These flatten the legacy gradient classes everywhere at once, so no screen
- * shows the old gradients next to the new look while the migration is in
- * progress.
- */
-.brand-gradient {
-  background-color: var(--color-accent);
-}
-
-.brand-gradient-soft {
-  background-color: var(--color-surface-muted);
-}
-
-.brand-text-gradient {
-  color: var(--color-accent);
-}
