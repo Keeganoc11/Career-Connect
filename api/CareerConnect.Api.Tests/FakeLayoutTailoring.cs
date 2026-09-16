@@ -21,6 +21,8 @@ public sealed class FakeResumeLayoutTailorer : IResumeLayoutTailorer
 
     public int CallCount { get; private set; }
     public int ShortenCallCount { get; private set; }
+    public string? LastInstructions { get; private set; }
+    public ResumeLayout? LastCurrent { get; private set; }
 
     public static readonly string[] PassPhrases =
         ["Designed an inventory API", "Delivered an inventory REST API", "Shipped a production inventory API", "Owned an inventory API"];
@@ -31,9 +33,12 @@ public sealed class FakeResumeLayoutTailorer : IResumeLayoutTailorer
         IReadOnlyDictionary<string, int> characterBudgets,
         MatchAnalysis latestScore,
         TailorContext context,
+        string? instructions = null,
         CancellationToken cancellationToken = default)
     {
         CallCount++;
+        LastInstructions = instructions;
+        LastCurrent = current;
         if (ThrowOnTailor is not null)
         {
             throw ThrowOnTailor;
@@ -99,4 +104,17 @@ public sealed class FakeResumeLayoutReader : IResumeLayoutReader
     public ResumeLayoutReadOutcome Result { get; set; } = new ResumeLayoutReadOutcome.Success(TestResumes.Layout());
 
     public ResumeLayoutReadOutcome Read(byte[] pdf) => Result;
+}
+
+public sealed class FakeJobPostingIdentifier : IJobPostingIdentifier
+{
+    public bool IsConfigured { get; set; } = true;
+    public PostingIdentity Result { get; set; } = new(true, "Stripe", "Software Engineer, Payments");
+    public int CallCount { get; private set; }
+
+    public Task<PostingIdentity> IdentifyAsync(string text, CancellationToken cancellationToken = default)
+    {
+        CallCount++;
+        return Task.FromResult(Result);
+    }
 }

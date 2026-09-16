@@ -33,8 +33,6 @@ builder.Services.AddSingleton<IJobPostingFetcher, JobPostingFetcher>();
 builder.Services.AddSingleton<IJobPostingExtractor, ClaudeJobPostingExtractor>();
 builder.Services.AddScoped<IJobPostingIngestService, JobPostingIngestService>();
 
-builder.Services.AddSingleton<IResumeTailorer, ClaudeResumeTailorer>();
-builder.Services.AddScoped<IResumeTailorService, ResumeTailorService>();
 
 builder.Services.AddSingleton<ICoverLetterGenerator, ClaudeCoverLetterGenerator>();
 builder.Services.AddScoped<ICoverLetterService, CoverLetterService>();
@@ -55,6 +53,8 @@ builder.Services.AddSingleton<IResumeLayoutTailorer, ClaudeResumeLayoutTailorer>
 builder.Services.AddSingleton<IResumeClaimsAuditor, ClaudeResumeClaimsAuditor>();
 builder.Services.AddSingleton<IResumeReviewer, ClaudeResumeReviewer>();
 builder.Services.AddScoped<IResumeEditGuard, ResumeEditGuard>();
+builder.Services.AddSingleton<IJobPostingIdentifier, ClaudeJobPostingIdentifier>();
+builder.Services.AddScoped<IJobCaptureService, JobCaptureService>();
 builder.Services.AddScoped<IPrepRunService, PrepRunService>();
 builder.Services.AddScoped<IApplicationPrepRunner, ApplicationPrepRunner>();
 builder.Services.AddHostedService<PrepRunBackgroundService>();

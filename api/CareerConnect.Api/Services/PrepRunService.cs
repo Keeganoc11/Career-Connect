@@ -26,7 +26,8 @@ public interface IPrepRunService
     /// background worker. Returns as soon as the row exists — the pipeline
     /// itself is several chained model calls and finishes long after this.
     /// </summary>
-    Task<PrepStartOutcome> StartAsync(Guid userId, Guid applicationId, CancellationToken cancellationToken = default);
+    Task<PrepStartOutcome> StartAsync(
+        Guid userId, Guid applicationId, string? instructions = null, CancellationToken cancellationToken = default);
 
     Task<PrepRun?> GetLatestAsync(Guid userId, Guid applicationId, CancellationToken cancellationToken = default);
 
@@ -41,7 +42,7 @@ public class PrepRunService(
     IConfiguration configuration) : IPrepRunService
 {
     public async Task<PrepStartOutcome> StartAsync(
-        Guid userId, Guid applicationId, CancellationToken cancellationToken = default)
+        Guid userId, Guid applicationId, string? instructions = null, CancellationToken cancellationToken = default)
     {
         var application = await db.Applications
             .AsNoTracking()
@@ -104,6 +105,7 @@ public class PrepRunService(
             ApplicationId = applicationId,
             Status = PrepRunStatus.Running,
             TargetScore = configuration.GetValue("Prep:TargetScore", 80),
+            Instructions = string.IsNullOrWhiteSpace(instructions) ? null : instructions.Trim(),
             StartedAtUtc = DateTime.UtcNow,
         };
 

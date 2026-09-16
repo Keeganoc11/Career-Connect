@@ -38,6 +38,7 @@ public interface IResumeLayoutTailorer
         IReadOnlyDictionary<string, int> characterBudgets,
         MatchAnalysis latestScore,
         TailorContext context,
+        string? instructions = null,
         CancellationToken cancellationToken = default);
 
     Task<List<LineEdit>> ShortenAsync(

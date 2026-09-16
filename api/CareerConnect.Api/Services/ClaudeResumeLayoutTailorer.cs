@@ -65,6 +65,7 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
         IReadOnlyDictionary<string, int> characterBudgets,
         MatchAnalysis latestScore,
         TailorContext context,
+        string? instructions = null,
         CancellationToken cancellationToken = default)
     {
         var resume = new StringBuilder();
@@ -89,6 +90,12 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
             }
         }
 
+        var request = string.IsNullOrWhiteSpace(instructions)
+            ? ""
+            : $"<candidate_request>\n{instructions.Trim()}\n</candidate_request>\n\n" +
+              "The candidate asked for this version specifically. Follow the request as far as the rules allow — " +
+              "the format and honesty rules win if they conflict — and make each reason say how the edit serves it.\n";
+
         var userPrompt = $"""
             Role: {context.RoleTitle}
             Company: {context.CompanyName}
@@ -112,6 +119,7 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
             {string.Join("\n", latestScore.Suggestions.Select(s => $"- {s.Section}: {s.Guidance}"))}
             </latest_score>
 
+            {request}
             Rewrite the editable lines that would make this resume a stronger, honest fit for this posting.
             """;
 

@@ -107,12 +107,33 @@ public class ApplicationPrepRunner(
         var reasons = new Dictionary<string, string>();
         var budgets = guard.CharacterBudgets(baseLayout);
 
-        while (bestScore.Score < run.TargetScore && run.Iterations < MaxIterations)
+        // Asking for changes builds on the version you already have, rather
+        // than throwing away a rewrite you were mostly happy with.
+        var honoringRequest = run.Instructions is not null;
+        if (honoringRequest
+            && application.TailoredResumeLayout is { } previous
+            && SameShape(baseLayout, previous)
+            && previous.ToPlainText() != baseLayout.ToPlainText())
+        {
+            best = previous;
+            bestScore = await ScoreAsync(run, resume.Id, previous, usedTailoredResume: true, cancellationToken);
+            foreach (var change in await PreviousChangesAsync(run, cancellationToken))
+            {
+                reasons[change.LineId] = change.Reason;
+            }
+            await AddStepAsync(run, "Scored your current tailored version", bestScore.Summary, bestScore.Score, cancellationToken);
+        }
+
+        // An ordinary pass stops once the resume clears the bar; one you asked
+        // for always makes at least one rewrite, whatever the score already is.
+        while ((bestScore.Score < run.TargetScore || (honoringRequest && run.Iterations == 0))
+               && run.Iterations < MaxIterations)
         {
             cancellationToken.ThrowIfCancellationRequested();
             run.Iterations++;
 
-            var proposals = await tailorer.TailorAsync(best, baseLayout, budgets, bestScore, context, cancellationToken);
+            var proposals = await tailorer.TailorAsync(
+                best, baseLayout, budgets, bestScore, context, run.Instructions, cancellationToken);
             var guarded = await guard.ApplyAsync(best, baseLayout, proposals, context, cancellationToken);
 
             if (guarded.Applied.Count == 0)
@@ -140,12 +161,23 @@ public class ApplicationPrepRunner(
                 cancellationToken);
 
             var improved = candidate.Score > bestScore.Score;
+            var keepAnyway = honoringRequest && run.Iterations == 1;
 
             // A tie still keeps the rewrite — it's in the posting's own language,
-            // which is worth having even when the score doesn't move. Only a
-            // regression is thrown away.
-            if (candidate.Score >= bestScore.Score)
+            // which is worth having even when the score doesn't move. A
+            // regression is thrown away, unless it's the change you asked for.
+            if (candidate.Score >= bestScore.Score || keepAnyway)
             {
+                if (keepAnyway && candidate.Score < bestScore.Score)
+                {
+                    await AddStepAsync(
+                        run,
+                        "Kept the change you asked for",
+                        $"It scores {candidate.Score}, down from {bestScore.Score}, but it's the version you asked for.",
+                        null,
+                        cancellationToken);
+                }
+
                 best = guarded.Layout;
                 bestScore = candidate;
                 foreach (var edit in guarded.Applied)
@@ -158,12 +190,15 @@ public class ApplicationPrepRunner(
             // improve means the resume has given the posting everything it honestly can.
             if (!improved)
             {
-                await AddStepAsync(
-                    run,
-                    "Stopped rewriting",
-                    "That pass didn't score better than the one before it, so this is as close a fit as your experience supports.",
-                    null,
-                    cancellationToken);
+                if (!keepAnyway)
+                {
+                    await AddStepAsync(
+                        run,
+                        "Stopped rewriting",
+                        "That pass didn't score better than the one before it, so this is as close a fit as your experience supports.",
+                        null,
+                        cancellationToken);
+                }
                 break;
             }
         }
@@ -274,6 +309,27 @@ public class ApplicationPrepRunner(
             .Where(x => x.Before != x.After)
             .Select(x => new ResumeChange(x.Id, x.Before, x.After, reasons.GetValueOrDefault(x.Id, "")))
             .ToList();
+
+    /// <summary>
+    /// Whether a stored tailored version still matches the base resume line for
+    /// line, so it can be built on. A newly uploaded base resume won't.
+    /// </summary>
+    private static bool SameShape(ResumeLayout baseLayout, ResumeLayout tailored) =>
+        baseLayout.Lines.Count == tailored.Lines.Count
+        && baseLayout.Lines.Zip(tailored.Lines).All(pair =>
+            pair.First.Id == pair.Second.Id
+            && pair.First.EditableFrom == pair.Second.EditableFrom
+            && (pair.First.Editable || pair.First.Text == pair.Second.Text));
+
+    private async Task<List<ResumeChange>> PreviousChangesAsync(PrepRun run, CancellationToken cancellationToken)
+    {
+        var previous = await db.PrepRuns
+            .AsNoTracking()
+            .Where(r => r.ApplicationId == run.ApplicationId && r.Id != run.Id && r.Status == PrepRunStatus.Succeeded)
+            .OrderByDescending(r => r.StartedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+        return previous?.Changes ?? [];
+    }
 
     private static string Lines(int count) => count == 1 ? "1 line" : $"{count} lines";
 

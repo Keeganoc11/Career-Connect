@@ -32,13 +32,18 @@ public class ApplicationPrepRunnerTests : IDisposable
     {
         var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
         _fixture.SeedResume(_userId, layout: withLayout ? _base : null);
+        return AddRun(application.Id, targetScore);
+    }
 
+    private PrepRun AddRun(Guid applicationId, int targetScore = 80, string? instructions = null)
+    {
         var run = new PrepRun
         {
             Id = Guid.NewGuid(),
-            ApplicationId = application.Id,
+            ApplicationId = applicationId,
             Status = PrepRunStatus.Running,
             TargetScore = targetScore,
+            Instructions = instructions,
             StartedAtUtc = DateTime.UtcNow,
         };
         _fixture.Db.PrepRuns.Add(run);
@@ -277,6 +282,54 @@ public class ApplicationPrepRunnerTests : IDisposable
 
         Assert.Equal(PrepRunStatus.Failed, run.Status);
         Assert.Equal("Upstream is down.", run.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ARequestedChangeRewritesEvenWhenTheScoreAlreadyClearsTheBar()
+    {
+        Scores(85, 86);
+        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
+        _fixture.SeedResume(_userId, layout: _base);
+
+        var (run, _) = await RunAsync(AddRun(application.Id, instructions: "Lean more backend"));
+
+        Assert.Equal(1, run.Iterations);
+        Assert.Equal("Lean more backend", _tailorer.LastInstructions);
+        Assert.Equal(86, run.FinalScore);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ARequestedChangeBuildsOnTheCurrentTailoredVersion_AndKeepsItsReasons()
+    {
+        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
+        _fixture.SeedResume(_userId, layout: _base);
+
+        Scores(50, 90);
+        await RunAsync(AddRun(application.Id));
+
+        // Second pass asks for something else, on a different line.
+        Scores(50, 90, 91);
+        _tailorer.Proposals.Enqueue([new LineEdit(TestResumes.SecondBulletLine, "Wrote xUnit tests and cut regressions in half", "Leads with xUnit.")]);
+        var (run, updated) = await RunAsync(AddRun(application.Id, instructions: "Mention xUnit first"));
+
+        // Started from the tailored version, not the base: the first rewrite survives.
+        Assert.Equal(FakeResumeLayoutTailorer.PassPhrases[0], _tailorer.LastCurrent!.Find(TestResumes.BulletLine)!.EditableText);
+        Assert.Equal(FakeResumeLayoutTailorer.PassPhrases[0], TailoredBullet(updated));
+        Assert.Equal(["Reason 1", "Leads with xUnit."], run.Changes.Select(c => c.Reason));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_KeepsARequestedChange_EvenWhenItScoresLower()
+    {
+        Scores(85, 80);
+        var application = _fixture.SeedApplication(_userId, status: ApplicationStatus.Preparing);
+        _fixture.SeedResume(_userId, layout: _base);
+
+        var (run, updated) = await RunAsync(AddRun(application.Id, instructions: "Shorter bullets"));
+
+        Assert.Equal(FakeResumeLayoutTailorer.PassPhrases[0], TailoredBullet(updated));
+        Assert.Equal(80, run.FinalScore);
+        Assert.Contains(run.Steps, s => s.Label == "Kept the change you asked for");
     }
 
     [Fact]

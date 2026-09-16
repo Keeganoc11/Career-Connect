@@ -98,6 +98,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             run.Property(r => r.Status).HasConversion<string>().HasMaxLength(50);
             run.Property(r => r.Steps).HasPrepStepListConversion();
             run.Property(r => r.Review).HasJsonConversion();
+            run.Property(r => r.Instructions).HasMaxLength(1000);
             run.Property(r => r.Changes).HasJsonListConversion();
 
             run.HasOne(r => r.Application)

@@ -42,6 +42,9 @@ public class PrepRun
     /// <summary>Null while running. Set once the pipeline knows whether the target was cleared.</summary>
     public bool? ReadyToApply { get; set; }
 
+    /// <summary>What the user asked this pass to change. Null for an ordinary pass.</summary>
+    public string? Instructions { get; set; }
+
     /// <summary>The reality check, written once tailoring has done all it can. Null while running or on failure.</summary>
     public ResumeReview? Review { get; set; }
 

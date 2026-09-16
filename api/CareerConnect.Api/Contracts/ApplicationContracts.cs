@@ -58,17 +58,6 @@ public class JobPostingExtractionResponse
     public required string JobDescriptionText { get; init; }
 }
 
-public class TailorResumeRequest
-{
-    [Required]
-    public required string ResumeContent { get; init; }
-}
-
-public class TailoredResumeResponse
-{
-    public required string Content { get; init; }
-}
-
 public class UpdateStatusRequest
 {
     [Required]

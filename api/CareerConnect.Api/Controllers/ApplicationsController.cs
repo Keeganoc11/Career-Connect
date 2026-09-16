@@ -12,10 +12,10 @@ public class ApplicationsController(
     IApplicationService applications,
     IMatchScoringService matches,
     IJobPostingIngestService jobPostings,
-    IResumeTailorService resumeTailor,
     ICoverLetterService coverLetters,
     IInterviewPrepService interviewPrep,
     IPrepRunService prepRuns,
+    IJobCaptureService jobCapture,
     IResumeRenderer renderer) : ApiControllerBase
 {
     [HttpGet]
@@ -63,6 +63,50 @@ public class ApplicationsController(
                     Status = StatusCodes.Status502BadGateway,
                 }),
 
+            _ => StatusCode(StatusCodes.Status500InternalServerError),
+        };
+    }
+
+    /// <summary>
+    /// Paste a job description (or give a link) and get a tracked application
+    /// with tailoring already running — the whole "add a job" flow in one call.
+    /// </summary>
+    [HttpPost("capture")]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<CaptureJobResponse>> Capture(CaptureJobRequest request, CancellationToken cancellationToken)
+    {
+        var outcome = await jobCapture.CaptureAsync(UserId, request, cancellationToken);
+
+        ObjectResult Fail(int status, string title, Action<ProblemDetails>? extend = null)
+        {
+            var problem = new ProblemDetails { Title = title, Status = status };
+            extend?.Invoke(problem);
+            return StatusCode(status, problem);
+        }
+
+        return outcome switch
+        {
+            JobCaptureOutcome.Captured captured => CreatedAtAction(nameof(Get), new { id = captured.Application.Id }, new CaptureJobResponse
+            {
+                Application = captured.Application,
+                PrepRun = captured.Run is null ? null : PrepRunResponse.From(captured.Run),
+                PrepMessage = captured.PrepMessage,
+            }),
+
+            JobCaptureOutcome.Duplicate duplicate => Fail(
+                StatusCodes.Status409Conflict,
+                $"You're already tracking {duplicate.CompanyName} · {duplicate.RoleTitle}.",
+                p => p.Extensions["existingApplicationId"] = duplicate.ExistingApplicationId),
+
+            JobCaptureOutcome.Invalid invalid => Fail(StatusCodes.Status400BadRequest, invalid.Message),
+            JobCaptureOutcome.NotAPosting notAPosting => Fail(StatusCodes.Status422UnprocessableEntity, notAPosting.Message),
+            JobCaptureOutcome.Unavailable unavailable => Fail(StatusCodes.Status503ServiceUnavailable, unavailable.Message),
+            JobCaptureOutcome.Failed failed => Fail(StatusCodes.Status502BadGateway, failed.Message),
             _ => StatusCode(StatusCodes.Status500InternalServerError),
         };
     }
@@ -142,9 +186,10 @@ public class ApplicationsController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<PrepRunResponse>> StartPrep(Guid id, CancellationToken cancellationToken)
+    public async Task<ActionResult<PrepRunResponse>> StartPrep(
+        Guid id, [FromBody] StartPrepRequest? request, CancellationToken cancellationToken)
     {
-        var outcome = await prepRuns.StartAsync(UserId, id, cancellationToken);
+        var outcome = await prepRuns.StartAsync(UserId, id, request?.Instructions, cancellationToken);
 
         return outcome switch
         {
@@ -249,44 +294,6 @@ public class ApplicationsController(
         // rendered to the user and the enum name is not a sentence.
         problem.Extensions["reason"] = failed.Reason.ToString();
         return problem;
-    }
-
-    /// <summary>AI-rewrites the given resume text to fit this application's job description. Saves nothing itself.</summary>
-    [HttpPost("{id:guid}/tailor-resume")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<TailoredResumeResponse>> TailorResume(
-        Guid id, TailorResumeRequest request, CancellationToken cancellationToken)
-    {
-        var outcome = await resumeTailor.TailorAsync(UserId, id, request.ResumeContent, cancellationToken);
-
-        return outcome switch
-        {
-            TailorOutcome.Success success => Ok(new TailoredResumeResponse { Content = success.Content }),
-
-            TailorOutcome.Failed { Reason: TailorFailureReason.ApplicationNotFound } => NotFound(),
-
-            TailorOutcome.Failed failed and { Reason: TailorFailureReason.NoJobDescription }
-                => Conflict(new ProblemDetails { Title = failed.Message, Status = StatusCodes.Status409Conflict }),
-
-            TailorOutcome.Failed failed and { Reason: TailorFailureReason.TailorerUnavailable }
-                => StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails
-                {
-                    Title = failed.Message,
-                    Status = StatusCodes.Status503ServiceUnavailable,
-                }),
-
-            TailorOutcome.Failed failed
-                => StatusCode(StatusCodes.Status502BadGateway, new ProblemDetails
-                {
-                    Title = failed.Message,
-                    Status = StatusCodes.Status502BadGateway,
-                }),
-
-            _ => StatusCode(StatusCodes.Status500InternalServerError),
-        };
     }
 
     /// <summary>Generates a cover letter for this application against its active resume. Saves nothing.</summary>
