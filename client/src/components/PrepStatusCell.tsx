@@ -1,4 +1,5 @@
 import type { PrepRun } from '../api/types'
+import { VERDICT_LABELS } from '../lib/tailoring'
 import { Button, Spinner } from './ui'
 
 interface Props {
@@ -8,14 +9,13 @@ interface Props {
 }
 
 /**
- * Every state is a link into the prep dialog, so the cell always answers
- * "and then what?". Labels come from the glossary — "Application prep",
- * never shortened to something that reads like interview prep.
+ * Where a job's tailoring stands, and always a way onto its page — which is
+ * where tailoring starts, runs and reads back.
  */
 export function PrepStatusCell({ run, hasJobDescription, onOpen }: Props) {
   if (!hasJobDescription) {
     return (
-      <span className="text-sm text-fg-subtle" title="Add the job description to enable prep">
+      <span className="text-sm text-fg-subtle" title="Add the job description to tailor for this job">
         —
       </span>
     )
@@ -24,7 +24,7 @@ export function PrepStatusCell({ run, hasJobDescription, onOpen }: Props) {
   if (!run) {
     return (
       <Button size="sm" onClick={onOpen}>
-        Start prep
+        Tailor
       </Button>
     )
   }
@@ -37,13 +37,17 @@ export function PrepStatusCell({ run, hasJobDescription, onOpen }: Props) {
         className="inline-flex items-center gap-2 rounded-control px-1.5 py-1 text-sm whitespace-nowrap text-fg-muted transition-colors hover:bg-surface-muted"
       >
         <Spinner />
-        Prepping…
+        Tailoring…
       </button>
     )
   }
 
   const label =
-    run.status === 'Failed' ? 'Prep failed' : run.readyToApply ? 'Ready to apply' : 'Below target'
+    run.status === 'Failed'
+      ? "Didn't finish"
+      : run.review
+        ? VERDICT_LABELS[run.review.verdict]
+        : 'Tailor again'
 
   return (
     <button
@@ -51,7 +55,7 @@ export function PrepStatusCell({ run, hasJobDescription, onOpen }: Props) {
       onClick={onOpen}
       title={run.status === 'Failed' ? (run.errorMessage ?? undefined) : undefined}
       className={`rounded-control px-1.5 py-1 text-sm whitespace-nowrap transition-colors hover:bg-surface-muted ${
-        run.status === 'Failed' ? 'text-danger' : run.readyToApply ? 'text-success' : 'text-fg-muted'
+        run.status === 'Failed' ? 'text-danger' : 'text-fg'
       }`}
     >
       {label}

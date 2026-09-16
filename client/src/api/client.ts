@@ -3,6 +3,8 @@ import type {
   Application,
   ApplicationInput,
   ApplicationStatus,
+  CaptureJobInput,
+  CaptureJobResult,
   CopilotInsights,
   GmailConnectionStatus,
   GmailScanResult,
@@ -33,10 +35,13 @@ export const UNREACHABLE_MESSAGE = import.meta.env.DEV
 
 export class ApiError extends Error {
   readonly status: number
+  /** The server's problem details, for the extra fields some errors carry. */
+  readonly problem: Record<string, unknown> | null
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, problem: Record<string, unknown> | null = null) {
     super(message)
     this.status = status
+    this.problem = problem
   }
 }
 
@@ -84,8 +89,10 @@ async function handleResponse<T>(response: Response, authenticated: boolean): Pr
   if (!response.ok) {
     noteUnauthorized(response.status, authenticated)
     let message = `Request failed (${response.status})`
+    let body: Record<string, unknown> | null = null
     try {
       const problem = await response.json()
+      body = problem
       if (problem?.title) {
         message = problem.title
         const details = problem.errors
@@ -98,7 +105,7 @@ async function handleResponse<T>(response: Response, authenticated: boolean): Pr
     } catch {
       // Non-JSON error body; keep the generic message.
     }
-    throw new ApiError(response.status, message)
+    throw new ApiError(response.status, message, body)
   }
 
   if (response.status === 204) {
@@ -316,9 +323,28 @@ export const api = {
     return request<Record<string, PrepRun>>('/api/applications/prep-runs')
   },
 
-  /** Kicks off a prep pass. Returns as soon as it's queued — poll getPrepRun for progress. */
-  startPrep(applicationId: string) {
-    return request<PrepRun>(`/api/applications/${applicationId}/prep`, { method: 'POST' })
+  /**
+   * Kicks off a tailoring pass. Returns as soon as it's queued — poll
+   * getPrepRun for progress. Instructions ("lean more backend") build on the
+   * current tailored version instead of starting over.
+   */
+  startPrep(applicationId: string, instructions?: string) {
+    return request<PrepRun>(`/api/applications/${applicationId}/prep`, {
+      method: 'POST',
+      body: JSON.stringify({ instructions: instructions?.trim() || null }),
+    })
+  },
+
+  /**
+   * Pasted description (or a link) in, tracked application with tailoring
+   * already running out. A job already being tracked fails with 409 and
+   * `existingApplicationId` on the error's problem.
+   */
+  captureJob(input: CaptureJobInput) {
+    return request<CaptureJobResult>('/api/applications/capture', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
   },
 
   getPrepRun(applicationId: string) {
@@ -380,13 +406,6 @@ export const api = {
       throw new ApiError(response.status, `Couldn't build the calendar file (${response.status}).`)
     }
     return response.text()
-  },
-
-  tailorResume(applicationId: string, resumeContent: string) {
-    return request<{ content: string }>(`/api/applications/${applicationId}/tailor-resume`, {
-      method: 'POST',
-      body: JSON.stringify({ resumeContent }),
-    })
   },
 
   generateCoverLetter(applicationId: string) {

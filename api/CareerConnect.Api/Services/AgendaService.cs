@@ -113,11 +113,11 @@ public class AgendaService(AppDbContext db) : IAgendaService
         {
             ApplicationStatus.Preparing when prep?.ReadyToApply == true && idleDays >= ReadyToApplyIdleDays =>
                 Nudge(application, NudgeKind.ReadyToApply, idleDays,
-                    "Prep cleared the bar — this is ready to send."),
+                    "Your tailored resume cleared the bar — this is ready to send."),
 
             ApplicationStatus.Preparing when prep is null && idleDays >= NeverPreppedIdleDays =>
                 Nudge(application, NudgeKind.NeverPrepped, idleDays,
-                    $"Saved {idleDays} days ago and never prepped."),
+                    $"Saved {idleDays} days ago and never tailored."),
 
             ApplicationStatus.Applied when idleDays >= ProbablyGhostedDays =>
                 Nudge(application, NudgeKind.ProbablyGhosted, idleDays,

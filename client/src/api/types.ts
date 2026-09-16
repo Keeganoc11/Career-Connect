@@ -107,6 +107,8 @@ export interface PrepRun {
   iterations: number
   steps: PrepStep[]
   readyToApply: boolean | null
+  /** What this pass was asked to change, if anything. */
+  instructions: string | null
   /** The reality check. Null while running, on failure, and on runs from before it existed. */
   review: ResumeReview | null
   /** Lines the tailored resume changed from the base, with why. */
@@ -205,9 +207,20 @@ export interface MatchResult {
   createdAtUtc: string
 }
 
-export type TailorResumeInput =
-  | { mode: 'existing'; resumeId: string; label: string; content: string }
-  | { mode: 'new'; label: string; content: string }
+export interface CaptureJobInput {
+  jobDescriptionText?: string | null
+  jobPostingUrl?: string | null
+  /** YYYY-MM-DD in the user's own timezone. */
+  localDate: string
+  allowDuplicate?: boolean
+}
+
+export interface CaptureJobResult {
+  application: Application
+  prepRun: PrepRun | null
+  /** Why tailoring didn't start, when it didn't. The application was still saved. */
+  prepMessage: string | null
+}
 
 export interface GmailConnectionStatus {
   connected: boolean

@@ -18,11 +18,8 @@ export function ApplicationsList({
   matches,
   prepRuns,
   busyId,
-  scoringId,
   onStatusChange,
-  onScore,
-  onOpenMatch,
-  onOpenPrep,
+  onOpenJob,
   onOpenInterviews,
   onOpenCoverLetter,
   onOpenInterviewPrep,
@@ -38,7 +35,7 @@ export function ApplicationsList({
             <div className="flex items-start justify-between gap-2">
               <button
                 type="button"
-                onClick={() => onEdit(application)}
+                onClick={() => onOpenJob(application)}
                 className="min-w-0 flex-1 rounded-sm text-left"
               >
                 <span className="block truncate text-sm font-medium text-fg">
@@ -50,10 +47,9 @@ export function ApplicationsList({
               </button>
               <ApplicationActionsMenu
                 application={application}
+                onOpen={() => onOpenJob(application)}
                 onEdit={() => onEdit(application)}
                 onInterviews={() => onOpenInterviews(application)}
-                onPrep={() => onOpenPrep(application)}
-                onMatch={() => onOpenMatch(application)}
                 onCoverLetter={() => onOpenCoverLetter(application)}
                 onInterviewPrep={() => onOpenInterviewPrep(application)}
                 onDelete={() => onDelete(application)}
@@ -66,17 +62,11 @@ export function ApplicationsList({
                 disabled={busyId === application.id}
                 onChange={(status) => onStatusChange(application.id, status)}
               />
-              <MatchScoreCell
-                match={matches[application.id]}
-                scoring={scoringId === application.id}
-                hasJobDescription={Boolean(application.jobDescriptionText)}
-                onScore={() => onScore(application)}
-                onOpen={() => onOpenMatch(application)}
-              />
+              <MatchScoreCell match={matches[application.id]} onOpen={() => onOpenJob(application)} />
               <PrepStatusCell
                 run={prepRuns[application.id]}
                 hasJobDescription={Boolean(application.jobDescriptionText)}
-                onOpen={() => onOpenPrep(application)}
+                onOpen={() => onOpenJob(application)}
               />
             </div>
 

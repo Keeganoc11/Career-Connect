@@ -1,13 +1,12 @@
 import { useRef, useState } from 'react'
 import {
+  ArrowRight,
   CalendarDays,
   ExternalLink,
   FileText,
-  Gauge,
   MessageSquareText,
   MoreHorizontal,
   Pencil,
-  Sparkles,
   Trash2,
 } from 'lucide-react'
 import type { Application } from '../api/types'
@@ -15,10 +14,9 @@ import { IconButton, Menu, type MenuItem } from './ui'
 
 interface Props {
   application: Application
+  onOpen: () => void
   onEdit: () => void
   onInterviews: () => void
-  onPrep: () => void
-  onMatch: () => void
   onCoverLetter: () => void
   onInterviewPrep: () => void
   onDelete: () => void
@@ -33,10 +31,9 @@ interface Props {
  */
 export function ApplicationActionsMenu({
   application,
+  onOpen,
   onEdit,
   onInterviews,
-  onPrep,
-  onMatch,
   onCoverLetter,
   onInterviewPrep,
   onDelete,
@@ -45,6 +42,12 @@ export function ApplicationActionsMenu({
   const [open, setOpen] = useState(false)
 
   const items: MenuItem[] = [
+    {
+      key: 'open',
+      label: 'Open',
+      icon: <ArrowRight className="size-4" aria-hidden />,
+      onSelect: onOpen,
+    },
     {
       key: 'edit',
       label: 'Edit details',
@@ -56,18 +59,6 @@ export function ApplicationActionsMenu({
       label: 'Interviews',
       icon: <CalendarDays className="size-4" aria-hidden />,
       onSelect: onInterviews,
-    },
-    {
-      key: 'prep',
-      label: 'Application prep',
-      icon: <Sparkles className="size-4" aria-hidden />,
-      onSelect: onPrep,
-    },
-    {
-      key: 'match',
-      label: 'Match score',
-      icon: <Gauge className="size-4" aria-hidden />,
-      onSelect: onMatch,
     },
     {
       key: 'cover-letter',

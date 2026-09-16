@@ -15,11 +15,8 @@ export interface ApplicationsViewProps {
   matches: Record<string, MatchResult>
   prepRuns: Record<string, PrepRun>
   busyId: string | null
-  scoringId: string | null
   onStatusChange: (id: string, status: ApplicationStatus) => void
-  onScore: (application: Application) => void
-  onOpenMatch: (application: Application) => void
-  onOpenPrep: (application: Application) => void
+  onOpenJob: (application: Application) => void
   onOpenInterviews: (application: Application) => void
   onOpenCoverLetter: (application: Application) => void
   onOpenInterviewPrep: (application: Application) => void
@@ -50,14 +47,11 @@ export function ApplicationsTable({
   matches,
   prepRuns,
   busyId,
-  scoringId,
   sortKey,
   sortAsc,
   onSort,
   onStatusChange,
-  onScore,
-  onOpenMatch,
-  onOpenPrep,
+  onOpenJob,
   onOpenInterviews,
   onOpenCoverLetter,
   onOpenInterviewPrep,
@@ -93,7 +87,7 @@ export function ApplicationsTable({
               )
             })}
             <th scope="col" className="px-4 py-2.5">
-              <span className="text-xs font-medium text-fg-muted">Prep</span>
+              <span className="text-xs font-medium text-fg-muted">Tailoring</span>
             </th>
             <th scope="col" className="px-4 py-2.5">
               <span className="sr-only">Actions</span>
@@ -109,7 +103,7 @@ export function ApplicationsTable({
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => onEdit(application)}
+                      onClick={() => onOpenJob(application)}
                       className="rounded-sm text-sm font-medium text-fg hover:text-accent"
                     >
                       {application.companyName}
@@ -143,13 +137,7 @@ export function ApplicationsTable({
                   />
                 </td>
                 <td className="px-4 py-3">
-                  <MatchScoreCell
-                    match={matches[application.id]}
-                    scoring={scoringId === application.id}
-                    hasJobDescription={Boolean(application.jobDescriptionText)}
-                    onScore={() => onScore(application)}
-                    onOpen={() => onOpenMatch(application)}
-                  />
+                  <MatchScoreCell match={matches[application.id]} onOpen={() => onOpenJob(application)} />
                 </td>
                 <td className="px-4 py-3 text-sm whitespace-nowrap text-fg-muted tabular-nums">
                   {/* A Preparing row hasn't been applied to yet, so the date is
@@ -164,16 +152,15 @@ export function ApplicationsTable({
                   <PrepStatusCell
                     run={prepRuns[application.id]}
                     hasJobDescription={Boolean(application.jobDescriptionText)}
-                    onOpen={() => onOpenPrep(application)}
+                    onOpen={() => onOpenJob(application)}
                   />
                 </td>
                 <td className="px-4 py-3 text-right">
                   <ApplicationActionsMenu
                     application={application}
+                    onOpen={() => onOpenJob(application)}
                     onEdit={() => onEdit(application)}
                     onInterviews={() => onOpenInterviews(application)}
-                    onPrep={() => onOpenPrep(application)}
-                    onMatch={() => onOpenMatch(application)}
                     onCoverLetter={() => onOpenCoverLetter(application)}
                     onInterviewPrep={() => onOpenInterviewPrep(application)}
                     onDelete={() => onDelete(application)}

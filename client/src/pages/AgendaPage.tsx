@@ -20,6 +20,7 @@ import {
 
 interface Props {
   dataVersion: number
+  onOpenJob: (applicationId: string) => void
   /** Opens one of the tracker's dialogs over whichever page is showing. */
   onIntent: (request: TrackerIntentRequest) => void
   /** Something here changed an application, so every page should refetch. */
@@ -37,30 +38,24 @@ const NUDGE_ACTIONS: Record<
   {
     icon: typeof Clock
     label: string
-    /** Absent when the action happens here instead of opening a dialog. */
+    /** Opens a dialog over the agenda. */
     request?: (applicationId: string) => TrackerIntentRequest
+    /** Goes to the job's page instead. */
+    openJob?: boolean
   }
 > = {
-  ReadyToApply: {
-    icon: Send,
-    label: 'Review prep',
-    request: (id) => ({ kind: 'prep', applicationId: id }),
-  },
-  NeverPrepped: {
-    icon: FileText,
-    label: 'Start prep',
-    request: (id) => ({ kind: 'prep', applicationId: id }),
-  },
+  ReadyToApply: { icon: Send, label: 'Open', openJob: true },
+  NeverPrepped: { icon: FileText, label: 'Tailor resume', openJob: true },
   AwaitingYou: {
     icon: CalendarClock,
     label: 'Schedule interview',
     request: (id) => ({ kind: 'interviews', applicationId: id }),
   },
-  Silent: { icon: Clock, label: 'Open', request: (id) => ({ kind: 'open', applicationId: id }) },
+  Silent: { icon: Clock, label: 'Open', openJob: true },
   ProbablyGhosted: { icon: Archive, label: 'Mark as ghosted' },
 }
 
-export function AgendaPage({ dataVersion, onIntent, onDataChanged }: Props) {
+export function AgendaPage({ dataVersion, onOpenJob, onIntent, onDataChanged }: Props) {
   const [agenda, setAgenda] = useState<Agenda | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -156,6 +151,7 @@ export function AgendaPage({ dataVersion, onIntent, onDataChanged }: Props) {
                   nudge={nudge}
                   busy={ghostingId === nudge.applicationId}
                   onIntent={onIntent}
+                  onOpenJob={onOpenJob}
                   onMarkGhosted={() => void markGhosted(nudge)}
                 />
               ))}
@@ -165,7 +161,7 @@ export function AgendaPage({ dataVersion, onIntent, onDataChanged }: Props) {
       )}
 
       <PipelineReview
-        onOpenApplication={(applicationId) => onIntent({ kind: 'open', applicationId })}
+        onOpenApplication={onOpenJob}
       />
     </div>
   )
@@ -230,11 +226,13 @@ function NudgeRow({
   nudge,
   busy,
   onIntent,
+  onOpenJob,
   onMarkGhosted,
 }: {
   nudge: AgendaNudge
   busy: boolean
   onIntent: (request: TrackerIntentRequest) => void
+  onOpenJob: (applicationId: string) => void
   onMarkGhosted: () => void
 }) {
   const action = NUDGE_ACTIONS[nudge.kind] ?? NUDGE_ACTIONS.Silent
@@ -254,7 +252,8 @@ function NudgeRow({
         loading={busy}
         onClick={() => {
           const request = action.request?.(nudge.applicationId)
-          if (request) onIntent(request)
+          if (action.openJob) onOpenJob(nudge.applicationId)
+          else if (request) onIntent(request)
           else onMarkGhosted()
         }}
       >

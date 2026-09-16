@@ -2,6 +2,7 @@ import { useId, useRef, useState, type FormEvent } from 'react'
 import { Sparkles } from 'lucide-react'
 import { api } from '../api/client'
 import { STATUSES, type Application, type ApplicationInput } from '../api/types'
+import { todayIso } from '../lib/format'
 import { STATUS_LABELS } from '../lib/status'
 import { useAsyncAction } from '../lib/useAsyncAction'
 import { Banner, Button, Field, Input, Modal, Select, Textarea, toast } from './ui'
@@ -13,13 +14,6 @@ interface Props {
   prefill?: Partial<Pick<ApplicationInput, 'companyName' | 'roleTitle' | 'dateApplied'>>
   onSave: (input: ApplicationInput) => Promise<void>
   onClose: () => void
-}
-
-function todayIso(): string {
-  const now = new Date()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${now.getFullYear()}-${month}-${day}`
 }
 
 export function ApplicationFormModal({ application, prefill, onSave, onClose }: Props) {

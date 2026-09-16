@@ -7,15 +7,11 @@ import type {
   GmailConnectionStatus,
   MatchResult,
   PrepRun,
-  ResumeSummary,
-  TailorResumeInput,
 } from '../api/types'
 import { ApplicationsTable } from '../components/ApplicationsTable'
 import { ApplicationsList } from '../components/ApplicationsList'
 import { StatusFilter } from '../components/StatusFilter'
 import { ApplicationFormModal } from '../components/ApplicationFormModal'
-import { MatchDetailModal } from '../components/MatchDetailModal'
-import { PrepModal } from '../components/PrepModal'
 import { CoverLetterModal } from '../components/CoverLetterModal'
 import { InterviewPrepModal } from '../components/InterviewPrepModal'
 import { InterviewsModal } from '../components/InterviewsModal'
@@ -45,6 +41,13 @@ interface Props {
   onPrefilledSave: () => void
   /** Drives the calendar-sync hint when scheduling an interview. */
   gmailStatus: GmailConnectionStatus | null
+  onOpenJob: (applicationId: string) => void
+  /**
+   * This page's dialogs also open over a job's page, which keeps its own copy
+   * of the data — so every change here tells the rest of the app to refetch.
+   */
+  onDataChanged: () => void
+  onDeleted: (applicationId: string) => void
 }
 
 export function TrackerPage({
@@ -53,6 +56,9 @@ export function TrackerPage({
   onIntentHandled,
   onPrefilledSave,
   gmailStatus,
+  onOpenJob,
+  onDataChanged,
+  onDeleted,
 }: Props) {
   const [applications, setApplications] = useState<Application[]>([])
   const [matches, setMatches] = useState<Record<string, MatchResult>>({})
@@ -66,14 +72,9 @@ export function TrackerPage({
   const [sortAsc, setSortAsc] = useState(false)
 
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [scoringId, setScoringId] = useState<string | null>(null)
-  const [matchTarget, setMatchTarget] = useState<Application | null>(null)
-  const [prepTarget, setPrepTarget] = useState<{ application: Application; autoStart: boolean } | null>(null)
   const [coverLetterTarget, setCoverLetterTarget] = useState<Application | null>(null)
   const [interviewPrepTarget, setInterviewPrepTarget] = useState<Application | null>(null)
   const [interviewsTarget, setInterviewsTarget] = useState<Application | null>(null)
-  const [resumes, setResumes] = useState<ResumeSummary[]>([])
-  const [tailoring, setTailoring] = useState(false)
   const [formTarget, setFormTarget] = useState<Application | null | 'new'>(null)
   const [formPrefill, setFormPrefill] = useState<
     Partial<Pick<ApplicationInput, 'companyName' | 'roleTitle' | 'dateApplied'>> | undefined
@@ -92,16 +93,14 @@ export function TrackerPage({
       // No getSummary: the status counts are computed from this list, so they
       // can't disagree with the rows, and there's no second request popping the
       // layout after the page has drawn.
-      const [list, latestMatches, latestPrepRuns, resumeList] = await Promise.all([
+      const [list, latestMatches, latestPrepRuns] = await Promise.all([
         api.listApplications(),
         api.listMatches(),
         api.listPrepRuns(),
-        api.listResumes(),
       ])
       setApplications(list)
       setMatches(latestMatches)
       setPrepRuns(latestPrepRuns)
-      setResumes(resumeList)
       setLoadError(null)
     } catch (e) {
       handleError(e)
@@ -137,8 +136,8 @@ export function TrackerPage({
       case 'edit':
         setFormTarget(application)
         break
-      case 'prep':
-        setPrepTarget({ application, autoStart: false })
+      case 'delete':
+        setDeleteTarget(application)
         break
       case 'interviews':
         setInterviewsTarget(application)
@@ -149,13 +148,9 @@ export function TrackerPage({
       case 'coverLetter':
         setCoverLetterTarget(application)
         break
-      case 'open':
-        if (matches[application.id]) setMatchTarget(application)
-        else setFormTarget(application)
-        break
     }
     onIntentHandled()
-  }, [intent, applications, matches, onIntentHandled])
+  }, [intent, applications, onIntentHandled])
 
   // A prep pass keeps running server-side after its dialog is closed, so the
   // list polls for itself — otherwise a row would sit on "Prepping…" until the
@@ -221,55 +216,13 @@ export function TrackerPage({
     try {
       await api.updateStatus(id, status)
       await refresh()
+      onDataChanged()
       return true
     } catch (e) {
       toast.error(errorMessage(e) ?? 'Could not update that status.')
       return false
     } finally {
       setBusyId(null)
-    }
-  }
-
-  const score = async (application: Application) => {
-    setScoringId(application.id)
-    try {
-      const result = await api.scoreMatch(application.id)
-      setMatches((current) => ({ ...current, [application.id]: result }))
-      // Open the detail straight away — the score alone rarely answers
-      // "so what should I change?", which is the point of running it.
-      setMatchTarget(application)
-    } catch (e) {
-      // A toast, not a standing amber banner above the table: scoring one row
-      // failing isn't a state the whole page needs to sit in.
-      toast.error(errorMessage(e) ?? 'Scoring failed.')
-    } finally {
-      setScoringId(null)
-    }
-  }
-
-  const loadResumeContent = (id: string) => api.getResume(id)
-
-  const tailorAndRescore = async (input: TailorResumeInput) => {
-    if (!matchTarget) return
-    setTailoring(true)
-    try {
-      const saved =
-        input.mode === 'existing'
-          ? await api.updateResume(input.resumeId, { label: input.label, content: input.content })
-          : await api.createResume({ label: input.label, content: input.content })
-
-      if (!saved.isActive) {
-        await api.setActiveResume(saved.id)
-      }
-
-      const [result, resumeList] = await Promise.all([
-        api.scoreMatch(matchTarget.id),
-        api.listResumes(),
-      ])
-      setMatches((current) => ({ ...current, [matchTarget.id]: result }))
-      setResumes(resumeList)
-    } finally {
-      setTailoring(false)
     }
   }
 
@@ -292,26 +245,18 @@ export function TrackerPage({
     }
     closeForm()
 
-    // The whole point of capturing a posting is to prep against it, so a new
-    // one with a description goes straight into the pipeline rather than
-    // waiting to be found and clicked in the list.
-    if (created && created.jobDescriptionText && created.status === 'Preparing') {
-      setPrepTarget({ application: created, autoStart: true })
-    }
-
     await refresh()
-  }
+    onDataChanged()
 
-  const recordPrepRun = useCallback((run: PrepRun) => {
-    setPrepRuns((current) => ({ ...current, [run.applicationId]: run }))
-  }, [])
-
-  const markApplied = async () => {
-    if (!prepTarget) return
-    const succeeded = await changeStatus(prepTarget.application.id, 'Applied')
-    if (succeeded) {
-      setPrepTarget(null)
-      toast.success('Marked as applied.')
+    // The whole point of capturing a posting is to tailor for it, so a new one
+    // with a description goes straight to its page with tailoring under way.
+    if (created && created.jobDescriptionText && created.status === 'Preparing') {
+      try {
+        await api.startPrep(created.id)
+      } catch (e) {
+        toast.info(errorMessage(e) ?? 'Tailoring couldn’t start.')
+      }
+      onOpenJob(created.id)
     }
   }
 
@@ -320,10 +265,11 @@ export function TrackerPage({
   const confirmDelete = () =>
     void deletion.run(async () => {
       if (!deleteTarget) return
-      const { companyName } = deleteTarget
-      await api.deleteApplication(deleteTarget.id)
+      const { companyName, id } = deleteTarget
+      await api.deleteApplication(id)
       setDeleteTarget(null)
       await refresh()
+      onDeleted(id)
       toast.success(`${companyName} deleted.`)
     })
 
@@ -338,12 +284,8 @@ export function TrackerPage({
     matches,
     prepRuns,
     busyId,
-    scoringId,
     onStatusChange: changeStatus,
-    onScore: (application: Application) => void score(application),
-    onOpenMatch: (application: Application) => setMatchTarget(application),
-    onOpenPrep: (application: Application) =>
-      setPrepTarget({ application, autoStart: false }),
+    onOpenJob: (application: Application) => onOpenJob(application.id),
     onOpenInterviews: (application: Application) => setInterviewsTarget(application),
     onOpenCoverLetter: (application: Application) => setCoverLetterTarget(application),
     onOpenInterviewPrep: (application: Application) => setInterviewPrepTarget(application),
@@ -457,40 +399,15 @@ export function TrackerPage({
         )}
       </div>
 
-      {matchTarget && matches[matchTarget.id] && (
-        <MatchDetailModal
-          application={matchTarget}
-          match={matches[matchTarget.id]}
-          resumes={resumes}
-          rescoring={scoringId === matchTarget.id}
-          tailoring={tailoring}
-          onRescore={() => void score(matchTarget)}
-          onLoadResumeContent={loadResumeContent}
-          onTailorAndRescore={tailorAndRescore}
-          onClose={() => setMatchTarget(null)}
-        />
-      )}
-
-      {prepTarget && (
-        <PrepModal
-          application={prepTarget.application}
-          run={prepRuns[prepTarget.application.id] ?? null}
-          autoStart={prepTarget.autoStart}
-          onRunChange={recordPrepRun}
-          onMarkApplied={() => void markApplied()}
-          onClose={() => {
-            setPrepTarget(null)
-            void refresh()
-          }}
-        />
-      )}
-
       {interviewsTarget && (
         <InterviewsModal
           application={interviewsTarget}
           gmail={gmailStatus}
           onClose={() => setInterviewsTarget(null)}
-          onChanged={() => void refresh()}
+          onChanged={() => {
+            void refresh()
+            onDataChanged()
+          }}
         />
       )}
 
@@ -498,7 +415,10 @@ export function TrackerPage({
         <CoverLetterModal
           application={coverLetterTarget}
           onClose={() => setCoverLetterTarget(null)}
-          onChanged={() => void refresh()}
+          onChanged={() => {
+            void refresh()
+            onDataChanged()
+          }}
         />
       )}
 

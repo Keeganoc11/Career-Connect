@@ -1,21 +1,24 @@
 import { useEffect, type ReactNode } from 'react'
-import { Briefcase, CalendarDays, FileText, Mail } from 'lucide-react'
+import { Briefcase, CalendarDays, FileText, Mail, Sparkles } from 'lucide-react'
+import type { Tab } from '../lib/route'
 import type { GmailConnection } from '../lib/useGmailConnection'
 import { AccountMenu } from './AccountMenu'
 import { BrandMark, IconButton } from './ui'
 
-export type View = 'agenda' | 'tracker' | 'resumes'
-
 interface Props {
-  view: View
-  onViewChange: (view: View) => void
+  /** The highlighted tab. A job's page counts as Applications. */
+  view: Tab
+  /** False on a page that sets its own title, like a job's. */
+  ownsTitle: boolean
+  onViewChange: (view: Tab) => void
   gmail: GmailConnection
   onOpenEmailUpdates: () => void
   onSignOut: () => void
   children: ReactNode
 }
 
-const TABS: { id: View; label: string; title: string; icon: typeof CalendarDays }[] = [
+const TABS: { id: Tab; label: string; title: string; icon: typeof CalendarDays }[] = [
+  { id: 'tailor', label: 'Tailor', title: 'Tailor · Career Connect', icon: Sparkles },
   { id: 'agenda', label: 'Agenda', title: 'Agenda · Career Connect', icon: CalendarDays },
   { id: 'tracker', label: 'Applications', title: 'Applications · Career Connect', icon: Briefcase },
   { id: 'resumes', label: 'Resumes', title: 'Resumes · Career Connect', icon: FileText },
@@ -29,6 +32,7 @@ const TABS: { id: View; label: string; title: string; icon: typeof CalendarDays 
  */
 export function AppShell({
   view,
+  ownsTitle,
   onViewChange,
   gmail,
   onOpenEmailUpdates,
@@ -36,8 +40,8 @@ export function AppShell({
   children,
 }: Props) {
   useEffect(() => {
-    document.title = TABS.find((tab) => tab.id === view)?.title ?? 'Career Connect'
-  }, [view])
+    if (ownsTitle) document.title = TABS.find((tab) => tab.id === view)?.title ?? 'Career Connect'
+  }, [view, ownsTitle])
 
   const emailUpdates = (
     <IconButton

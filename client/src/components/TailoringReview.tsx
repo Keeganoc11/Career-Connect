@@ -1,32 +1,16 @@
 import type { ReactNode } from 'react'
 import { ArrowRight, Download } from 'lucide-react'
 import { api } from '../api/client'
-import type { FitVerdict, GapFix, GapSeverity, PrepRun } from '../api/types'
+import type { PrepRun } from '../api/types'
+import { FIX_LABELS, SEVERITY_LABELS, VERDICT_LABELS } from '../lib/tailoring'
 import { useAsyncAction } from '../lib/useAsyncAction'
 import { Badge, Banner, Button, Card } from './ui'
-
-const VERDICT_LABELS: Record<FitVerdict, string> = {
-  StrongFit: 'Strong fit',
-  WorthAShot: 'Worth a shot',
-  Stretch: 'Stretch',
-  NotAFit: 'Not a fit',
-}
-
-const SEVERITY_LABELS: Record<GapSeverity, string> = {
-  Dealbreaker: 'Dealbreaker',
-  Fixable: 'Fixable',
-  Minor: 'Minor',
-}
-
-const FIX_LABELS: Record<GapFix, string> = {
-  Resume: 'Fix on the resume',
-  Interview: 'Cover it in the interview',
-  BuildSkill: 'Build the skill',
-}
 
 interface Props {
   applicationId: string
   run: PrepRun
+  /** Placed right under the verdict — where "ask for changes" belongs, before the detail. */
+  afterVerdict?: ReactNode
 }
 
 function Section({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
@@ -46,7 +30,7 @@ function Section({ title, count, children }: { title: string; count?: number; ch
  * that decides whether the download is worth using at all, then the file, then
  * the feedback in order of how much it matters.
  */
-export function TailoringReview({ applicationId, run }: Props) {
+export function TailoringReview({ applicationId, run, afterVerdict }: Props) {
   const download = useAsyncAction()
   const review = run.review
   if (!review) return null
@@ -82,6 +66,8 @@ export function TailoringReview({ applicationId, run }: Props) {
           </div>
         )}
       </Card>
+
+      {afterVerdict}
 
       {review.dealbreakers.length > 0 && (
         <Section title="Dealbreakers" count={review.dealbreakers.length}>

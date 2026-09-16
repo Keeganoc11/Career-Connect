@@ -1,40 +1,17 @@
 import type { MatchResult } from '../api/types'
 import { scoreBand } from '../lib/matchScore'
-import { Button, Spinner } from './ui'
-
 interface Props {
   match: MatchResult | undefined
-  scoring: boolean
-  hasJobDescription: boolean
-  onScore: () => void
   onOpen: () => void
 }
 
-export function MatchScoreCell({ match, scoring, hasJobDescription, onScore, onOpen }: Props) {
-  if (scoring) {
-    return (
-      <span className="inline-flex items-center gap-2 text-sm text-fg-muted">
-        <Spinner />
-        Scoring…
-      </span>
-    )
-  }
-
+/**
+ * The latest score, which tailoring records as it goes. Scoring on its own is
+ * gone — it happens as part of tailoring, on the job's page.
+ */
+export function MatchScoreCell({ match, onOpen }: Props) {
   if (!match) {
-    // Nothing to score against, so offer nothing — an em dash rather than a
-    // button that would only explain why it can't run.
-    if (!hasJobDescription) {
-      return (
-        <span className="text-sm text-fg-subtle" title="Add the job description to enable scoring">
-          —
-        </span>
-      )
-    }
-    return (
-      <Button size="sm" onClick={onScore}>
-        Score
-      </Button>
-    )
+    return <span className="text-sm text-fg-subtle">—</span>
   }
 
   const band = scoreBand(match.score)

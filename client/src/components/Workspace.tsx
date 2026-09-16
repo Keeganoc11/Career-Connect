@@ -1,29 +1,32 @@
 import { useCallback, useState } from 'react'
 import type { SuggestedNewApplication } from '../api/types'
+import { canGoBackInApp, useRoute, type Tab } from '../lib/route'
 import {
   intent as makeIntent,
   type TrackerIntent,
   type TrackerIntentRequest,
 } from '../lib/trackerIntent'
 import { useGmailConnection } from '../lib/useGmailConnection'
-import { AppShell, type View } from './AppShell'
+import { AppShell } from './AppShell'
 import { EmailUpdatesModal } from './EmailUpdatesModal'
 import { AgendaPage } from '../pages/AgendaPage'
-import { TrackerPage } from '../pages/TrackerPage'
+import { JobPage } from '../pages/JobPage'
 import { ResumesPage } from '../pages/ResumesPage'
+import { TailorPage } from '../pages/TailorPage'
+import { TrackerPage } from '../pages/TrackerPage'
 
 /**
- * The signed-in app: navigation, the Gmail connection, and the three pages.
+ * The signed-in app: navigation, the Gmail connection, and the pages.
  *
- * All three stay mounted and are hidden rather than unmounted, so a search
- * term, a filter or half-typed resume text survives switching tabs. It also
- * lets the header open a dialog that TrackerPage owns while another page is on
- * screen.
+ * The four tab pages stay mounted and are hidden rather than unmounted, so a
+ * half-pasted job description, a filter or unsaved resume text survives
+ * switching tabs. It also lets TrackerPage's dialogs open over any page.
  *
- * App.tsx is left as nothing but the auth gate.
+ * A job's page is the exception: it's a route of its own ("#/jobs/<id>"),
+ * mounted when you're on it, so the back button and a reload both work.
  */
 export function Workspace({ onSignOut }: { onSignOut: () => void }) {
-  const [view, setView] = useState<View>('agenda')
+  const [route, navigate] = useRoute()
   const [emailUpdatesOpen, setEmailUpdatesOpen] = useState(false)
   const [trackerIntent, setTrackerIntent] = useState<TrackerIntent | null>(null)
   const [fromSuggestion, setFromSuggestion] = useState<SuggestedNewApplication | null>(null)
@@ -35,45 +38,90 @@ export function Workspace({ onSignOut }: { onSignOut: () => void }) {
 
   const gmail = useGmailConnection(bumpData)
 
+  const tab: Tab = route.view === 'job' ? 'tracker' : route.view
+  const openTab = (next: Tab) => navigate({ view: next })
+  const openJob = useCallback(
+    (applicationId: string) => navigate({ view: 'job', applicationId }),
+    [navigate],
+  )
+  // Dialogs open over whatever page is showing; their data lives in TrackerPage.
+  const openDialog = useCallback(
+    (request: TrackerIntentRequest) => setTrackerIntent(makeIntent(request)),
+    [],
+  )
+
   const reviewNewApplication = (suggestion: SuggestedNewApplication) => {
     setFromSuggestion(suggestion)
-    setTrackerIntent(
-      makeIntent({
-        kind: 'new',
-        prefill: {
-          companyName: suggestion.companyName,
-          roleTitle: suggestion.roleTitle,
-          dateApplied: suggestion.emailReceivedAtUtc.slice(0, 10),
-        },
-      }),
-    )
+    openDialog({
+      kind: 'new',
+      prefill: {
+        companyName: suggestion.companyName,
+        roleTitle: suggestion.roleTitle,
+        dateApplied: suggestion.emailReceivedAtUtc.slice(0, 10),
+      },
+    })
     setEmailUpdatesOpen(false)
-    setView('tracker')
+    openTab('tracker')
+  }
+
+  const back = () => {
+    // Back to wherever you came from when there's in-app history to go back
+    // to; a job page opened directly has none, so fall back to the list.
+    if (canGoBackInApp()) window.history.back()
+    else openTab('tracker')
   }
 
   return (
     <AppShell
-      view={view}
-      onViewChange={setView}
+      view={tab}
+      ownsTitle={route.view !== 'job'}
+      onViewChange={openTab}
       gmail={gmail}
       onOpenEmailUpdates={() => setEmailUpdatesOpen(true)}
       onSignOut={onSignOut}
     >
-      <div hidden={view !== 'agenda'}>
-        <AgendaPage
+      {route.view === 'job' && (
+        <JobPage
+          key={route.applicationId}
+          applicationId={route.applicationId}
           dataVersion={dataVersion}
-          // No tab switch: the tracker's dialogs portal to <body>, so they open
-          // over the agenda rather than dropping you onto another page.
-          onIntent={(request: TrackerIntentRequest) => setTrackerIntent(makeIntent(request))}
+          onBack={back}
+          onIntent={openDialog}
+          onDataChanged={bumpData}
+        />
+      )}
+      <div hidden={route.view !== 'tailor'}>
+        <TailorPage
+          dataVersion={dataVersion}
+          onOpenJob={openJob}
+          onGoToResumes={() => openTab('resumes')}
           onDataChanged={bumpData}
         />
       </div>
-      <div hidden={view !== 'tracker'}>
+      <div hidden={route.view !== 'agenda'}>
+        <AgendaPage
+          dataVersion={dataVersion}
+          onOpenJob={openJob}
+          onIntent={openDialog}
+          onDataChanged={bumpData}
+        />
+      </div>
+      <div hidden={route.view !== 'tracker'}>
         <TrackerPage
           dataVersion={dataVersion}
           gmailStatus={gmail.status}
           intent={trackerIntent}
           onIntentHandled={() => setTrackerIntent(null)}
+          onOpenJob={openJob}
+          onDataChanged={bumpData}
+          onDeleted={(applicationId) => {
+            bumpData()
+            // Deleted from its own page: replace that history entry, so Back
+            // doesn't return to a page for a job that no longer exists.
+            if (route.view === 'job' && route.applicationId === applicationId) {
+              window.location.replace('#/applications')
+            }
+          }}
           onPrefilledSave={() => {
             // The suggestion promised an application, and now one exists — so
             // it's consumed here rather than the moment the form opened, which
@@ -83,7 +131,7 @@ export function Workspace({ onSignOut }: { onSignOut: () => void }) {
           }}
         />
       </div>
-      <div hidden={view !== 'resumes'}>
+      <div hidden={route.view !== 'resumes'}>
         <ResumesPage dataVersion={dataVersion} />
       </div>
 

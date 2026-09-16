@@ -3,8 +3,9 @@ import type { ApplicationInput } from '../api/types'
 type Prefill = Partial<Pick<ApplicationInput, 'companyName' | 'roleTitle' | 'dateApplied'>>
 
 /**
- * A request for the tracker to open something, carried as state rather than a
- * route. The app has no router, and the alternative — every caller reaching
+ * A request for the tracker to open one of its dialogs, carried as state. A
+ * job's own page is a route instead (see lib/route); dialogs stay intents
+ * because they open over whatever page you're on. The alternative — every caller reaching
  * into TrackerPage's dialog state — is what left it with eight separate
  * `*Target` states.
  *
@@ -15,11 +16,10 @@ type Prefill = Partial<Pick<ApplicationInput, 'companyName' | 'roleTitle' | 'dat
 export type TrackerIntentRequest =
   | { kind: 'new'; prefill?: Prefill }
   | { kind: 'edit'; applicationId: string }
-  | { kind: 'prep'; applicationId: string }
+  | { kind: 'delete'; applicationId: string }
   | { kind: 'interviews'; applicationId: string }
   | { kind: 'interviewPrep'; applicationId: string }
   | { kind: 'coverLetter'; applicationId: string }
-  | { kind: 'open'; applicationId: string }
 
 /**
  * `id` makes each intent distinct, so asking for the same thing twice reopens
