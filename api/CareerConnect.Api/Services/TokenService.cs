@@ -8,11 +8,16 @@ namespace CareerConnect.Api.Services;
 
 public interface ITokenService
 {
+    /// <summary>The claim carrying <see cref="Domain.User.TokenVersion"/>.</summary>
+    const string TokenVersionClaim = "tv";
+
     (string Token, DateTime ExpiresAtUtc) CreateToken(User user);
 }
 
 public class TokenService(IConfiguration config) : ITokenService
 {
+    private const string TokenVersionClaim = ITokenService.TokenVersionClaim;
+
     public (string Token, DateTime ExpiresAtUtc) CreateToken(User user)
     {
         var key = config["Jwt:Key"]
@@ -26,7 +31,11 @@ public class TokenService(IConfiguration config) : ITokenService
             claims:
             [
                 new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-                new Claim(JwtRegisteredClaimNames.Email, user.Email)
+                new Claim(JwtRegisteredClaimNames.Email, user.Email),
+                // Checked against the user row on every authenticated request:
+                // a password reset bumps it and every token issued before is
+                // refused (see Program.cs, OnTokenValidated).
+                new Claim(TokenVersionClaim, user.TokenVersion.ToString())
             ],
             expires: expiresAtUtc,
             signingCredentials: new SigningCredentials(

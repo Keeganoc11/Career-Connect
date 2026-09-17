@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
@@ -22,6 +23,19 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(PostgresConnectionString.Resolve(builder.Configuration)));
 
 builder.Services.AddScoped<IPlanService, PlanService>();
+builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
+
+// Real sending needs a key; without one the sender writes the mail to the log
+// instead, so local development and the tests need no provider and no network.
+builder.Services.AddHttpClient();
+if (!string.IsNullOrWhiteSpace(builder.Configuration["Email:ApiKey"]))
+{
+    builder.Services.AddScoped<IEmailSender, ResendEmailSender>();
+}
+else
+{
+    builder.Services.AddScoped<IEmailSender, LoggingEmailSender>();
+}
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IApplicationService, ApplicationService>();
 builder.Services.AddScoped<IResumeService, ResumeService>();
@@ -107,6 +121,40 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]
                     ?? throw new InvalidOperationException("Jwt:Key is not configured.")))
+        };
+
+        // A valid signature isn't enough: the token also has to have been
+        // issued since the last password reset. One indexed lookup per
+        // authenticated request buys "resetting your password signs everyone
+        // else out", which is the entire point of resetting a stolen password.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var principal = context.Principal;
+                var idClaim = principal?.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? principal?.FindFirstValue("sub");
+                var versionClaim = principal?.FindFirstValue(ITokenService.TokenVersionClaim);
+
+                if (!Guid.TryParse(idClaim, out var userId) || !int.TryParse(versionClaim, out var version))
+                {
+                    // Issued before token versions existed, or malformed.
+                    context.Fail("This session is no longer valid. Sign in again.");
+                    return;
+                }
+
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var current = await db.Users
+                    .AsNoTracking()
+                    .Where(u => u.Id == userId)
+                    .Select(u => (int?)u.TokenVersion)
+                    .FirstOrDefaultAsync(context.HttpContext.RequestAborted);
+
+                if (current is null || current != version)
+                {
+                    context.Fail("This session is no longer valid. Sign in again.");
+                }
+            },
         };
     });
 builder.Services.AddAuthorization();

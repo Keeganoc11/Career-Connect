@@ -4,6 +4,9 @@
  * way for them to drift is to write the list twice.
  */
 
+/** Where support and privacy questions go; shown on the legal pages. */
+export const SUPPORT_EMAIL = 'support@careerconnectapp.com'
+
 export const PRO_PRICE = '$12'
 export const PRO_PRICE_PERIOD = 'per month'
 

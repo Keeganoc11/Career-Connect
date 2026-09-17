@@ -3,8 +3,31 @@ import { auth, setUnauthorizedHandler } from './api/client'
 import type { LoginResponse } from './api/types'
 import { PlanProvider } from './lib/plan'
 import { HomePage } from './pages/HomePage'
+import { LegalPage } from './pages/LegalPage'
 import { LoginPage } from './pages/LoginPage'
+import { PasswordResetPage } from './pages/PasswordResetPage'
 import { Workspace } from './components/Workspace'
+
+/**
+ * Pages that live at a real path rather than in the hash.
+ *
+ * The app is hash-routed, but these four can't be: a reset link has to survive
+ * being pasted from an email, and Google's OAuth consent screen only accepts a
+ * plain URL for the privacy policy. The API serves index.html for unknown
+ * paths, so a path route costs nothing on the server.
+ */
+type PathView = 'reset' | 'forgot' | 'privacy' | 'terms'
+
+const PATH_VIEWS: Record<string, PathView> = {
+  '/reset': 'reset',
+  '/forgot': 'forgot',
+  '/privacy': 'privacy',
+  '/terms': 'terms',
+}
+
+function pathView(pathname: string): PathView | null {
+  return PATH_VIEWS[pathname.replace(/\/+$/, '') || '/'] ?? null
+}
 
 /**
  * The signed-out hash, which is only ever one of three things. The signed-in
@@ -30,16 +53,22 @@ function publicView(hash: string): PublicView {
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(() => auth.token !== null)
   const [view, setView] = useState<PublicView>(() => publicView(window.location.hash))
+  const [path, setPath] = useState<PathView | null>(() => pathView(window.location.pathname))
 
   useEffect(() => {
     const sync = () => {
       setView(publicView(window.location.hash))
+      setPath(pathView(window.location.pathname))
       // These are separate pages, not anchors on one — arriving at the sign-in
       // form from halfway down the home page shouldn't keep that scroll.
       window.scrollTo({ top: 0 })
     }
     window.addEventListener('hashchange', sync)
-    return () => window.removeEventListener('hashchange', sync)
+    window.addEventListener('popstate', sync)
+    return () => {
+      window.removeEventListener('hashchange', sync)
+      window.removeEventListener('popstate', sync)
+    }
   }, [])
 
   // One place decides what an expired session means. api/client clears the
@@ -51,6 +80,12 @@ export default function App() {
   }, [])
 
   const go = (hash: string) => {
+    // A path route has to be left properly: changing only the hash from
+    // "/reset" would leave the reset page mounted under a new fragment.
+    if (pathView(window.location.pathname)) {
+      window.location.href = `/${hash}`
+      return
+    }
     window.location.hash = hash
   }
 
@@ -59,6 +94,22 @@ export default function App() {
     // account landing on the locked Tailor tab would be a strange welcome.
     go(login.plan === 'Pro' ? '#/tailor' : '#/applications')
     setLoggedIn(true)
+  }
+
+  // Ahead of the auth gate: these pages read the same signed in or out, and a
+  // reset link opened in a browser that still has a session must still work.
+  if (path === 'privacy' || path === 'terms') {
+    return <LegalPage document={path} onHome={() => (window.location.href = '/')} />
+  }
+
+  if (path === 'reset' || path === 'forgot') {
+    return (
+      <PasswordResetPage
+        mode={path === 'reset' ? 'set' : 'request'}
+        token={new URLSearchParams(window.location.search).get('token')}
+        onBackToSignIn={() => (window.location.href = '/#/signin')}
+      />
+    )
   }
 
   if (!loggedIn) {

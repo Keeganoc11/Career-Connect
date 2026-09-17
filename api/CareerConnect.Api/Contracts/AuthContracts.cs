@@ -24,6 +24,21 @@ public class RegisterRequest
     public string? DisplayName { get; init; }
 }
 
+public class ForgotPasswordRequest
+{
+    [Required, EmailAddress, MaxLength(320)]
+    public required string Email { get; init; }
+}
+
+public class ResetPasswordRequest
+{
+    [Required, MaxLength(200)]
+    public required string Token { get; init; }
+
+    [Required, MinLength(8), MaxLength(200)]
+    public required string Password { get; init; }
+}
+
 public class LoginResponse
 {
     public required string Token { get; init; }

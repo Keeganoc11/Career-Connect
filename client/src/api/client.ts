@@ -224,6 +224,20 @@ export const api = {
     })
   },
 
+  requestPasswordReset(email: string) {
+    return request<void>('/api/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    })
+  },
+
+  resetPassword(token: string, password: string) {
+    return request<void>('/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    })
+  },
+
   /** Who's signed in, and on what plan — re-read on load so an upgrade lands without signing out. */
   me() {
     return request<MeResponse>('/api/auth/me')

@@ -108,7 +108,10 @@ export function LoginPage({ mode, onModeChange, onBack, onLoggedIn }: Props) {
             )}
           </Field>
 
-          <Field label="Password" hint={mode === 'register' ? 'At least 8 characters.' : undefined}>
+          <Field
+            label="Password"
+            hint={mode === 'register' ? 'At least 8 characters.' : undefined}
+          >
             {(props) => (
               <Input
                 {...props}
@@ -121,6 +124,17 @@ export function LoginPage({ mode, onModeChange, onBack, onLoggedIn }: Props) {
               />
             )}
           </Field>
+
+          {mode === 'login' && (
+            <p className="-mt-1 text-right">
+              <a
+                className="rounded-sm text-sm font-medium text-accent hover:text-accent-hover"
+                href="/forgot"
+              >
+                Forgot your password?
+              </a>
+            </p>
+          )}
 
           {error && <Banner>{error}</Banner>}
 
@@ -146,7 +160,17 @@ export function LoginPage({ mode, onModeChange, onBack, onLoggedIn }: Props) {
           </button>
         </p>
 
-        <p className="mt-6 text-center">
+        <p className="mt-6 text-center text-sm text-fg-subtle">
+          <a className="hover:text-fg-muted" href="/privacy">
+            Privacy
+          </a>
+          {' · '}
+          <a className="hover:text-fg-muted" href="/terms">
+            Terms
+          </a>
+        </p>
+
+        <p className="mt-4 text-center">
           <button
             type="button"
             onClick={onBack}

@@ -11,7 +11,11 @@ namespace CareerConnect.Api.Controllers;
 [ApiController]
 [Route("api/auth")]
 [EnableRateLimiting("auth")]
-public class AuthController(IAuthService authService, AppDbContext db, IPlanService plans) : ApiControllerBase
+public class AuthController(
+    IAuthService authService,
+    IPasswordResetService passwordReset,
+    AppDbContext db,
+    IPlanService plans) : ApiControllerBase
 {
     [HttpPost("login")]
     [ProducesResponseType<LoginResponse>(StatusCodes.Status200OK)]
@@ -48,6 +52,40 @@ public class AuthController(IAuthService authService, AppDbContext db, IPlanServ
                 Status = StatusCodes.Status409Conflict,
             }),
         };
+    }
+
+    /// <summary>
+    /// Sends a reset link, if that address has an account.
+    ///
+    /// Always 202, even for an address with no account: answering differently
+    /// would turn this into a way to find out who has one. The per-IP limit on
+    /// this controller is what stops it being used to send mail in bulk.
+    /// </summary>
+    [HttpPost("forgot-password")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    public async Task<IActionResult> ForgotPassword(
+        ForgotPasswordRequest request, CancellationToken cancellationToken)
+    {
+        await passwordReset.RequestAsync(request.Email, cancellationToken);
+        return Accepted();
+    }
+
+    /// <summary>Sets a new password from a reset link, and signs out every existing session.</summary>
+    [HttpPost("reset-password")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ResetPassword(
+        ResetPasswordRequest request, CancellationToken cancellationToken)
+    {
+        var outcome = await passwordReset.ResetAsync(request.Token, request.Password, cancellationToken);
+
+        return outcome == ResetOutcome.Done
+            ? NoContent()
+            : BadRequest(new ProblemDetails
+            {
+                Title = "That reset link has expired or has already been used. Ask for a new one.",
+                Status = StatusCodes.Status400BadRequest,
+            });
     }
 
     /// <summary>

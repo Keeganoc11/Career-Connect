@@ -14,6 +14,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<PrepRun> PrepRuns => Set<PrepRun>();
     public DbSet<InterviewEvent> InterviewEvents => Set<InterviewEvent>();
     public DbSet<InterviewQuestionEntry> InterviewQuestions => Set<InterviewQuestionEntry>();
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<ActivityEvent> ActivityEvents => Set<ActivityEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -24,6 +25,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             user.HasIndex(u => u.Email).IsUnique();
             user.Property(u => u.DisplayName).HasMaxLength(200);
             user.Property(u => u.Plan).HasConversion<string>().HasMaxLength(20);
+
+            user.HasMany(u => u.PasswordResetTokens)
+                .WithOne(t => t.User)
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Application>(app =>
@@ -126,6 +132,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
             // Every read is "what's coming up", so the schedule is the index.
             interview.HasIndex(i => new { i.ApplicationId, i.ScheduledAtUtc });
+        });
+
+        modelBuilder.Entity<PasswordResetToken>(token =>
+        {
+            token.Property(t => t.TokenHash).HasMaxLength(64);
+
+            // Every lookup is by hash — that's all the server is given.
+            token.HasIndex(t => t.TokenHash).IsUnique();
         });
 
         modelBuilder.Entity<InterviewQuestionEntry>(question =>

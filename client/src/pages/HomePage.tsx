@@ -209,13 +209,21 @@ export function HomePage({ onSignIn, onGetStarted }: Props) {
             <BrandMark className="size-5" />
             <span className="text-sm text-fg-muted">Career Connect</span>
           </span>
-          <button
-            type="button"
-            onClick={onSignIn}
-            className="rounded-sm text-sm font-medium text-accent hover:text-accent-hover"
-          >
-            Sign in
-          </button>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+            <a className="text-fg-muted hover:text-fg" href="/privacy">
+              Privacy
+            </a>
+            <a className="text-fg-muted hover:text-fg" href="/terms">
+              Terms
+            </a>
+            <button
+              type="button"
+              onClick={onSignIn}
+              className="rounded-sm font-medium text-accent hover:text-accent-hover"
+            >
+              Sign in
+            </button>
+          </div>
         </div>
       </footer>
     </div>

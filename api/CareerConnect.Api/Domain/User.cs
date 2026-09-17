@@ -18,7 +18,17 @@ public class User
     /// <summary>When the plan last changed, so an upgrade or downgrade is traceable.</summary>
     public DateTime? PlanChangedAtUtc { get; set; }
 
+    /// <summary>
+    /// Bumped whenever every existing session should stop working — today that
+    /// means a password reset. Tokens carry the version they were issued at and
+    /// are rejected once it moves on, so resetting a compromised account
+    /// actually removes whoever is already signed in, rather than leaving them
+    /// there until their token happens to expire.
+    /// </summary>
+    public int TokenVersion { get; set; }
+
     public List<Application> Applications { get; set; } = [];
     public List<Resume> Resumes { get; set; } = [];
     public GmailConnection? GmailConnection { get; set; }
+    public List<PasswordResetToken> PasswordResetTokens { get; set; } = [];
 }
