@@ -2,6 +2,8 @@ import { useRef, useState } from 'react'
 import { LogOut } from 'lucide-react'
 import { auth } from '../api/client'
 import { formatRelative } from '../lib/format'
+import { usePlan } from '../lib/planContext'
+import { PRO_AVAILABILITY } from '../lib/tiers'
 import type { GmailConnection } from '../lib/useGmailConnection'
 import { Button, ConfirmDialog, Popover } from './ui'
 
@@ -30,6 +32,7 @@ function Dot({ on }: { on: boolean }) {
  * disconnecting has to be confirmed.
  */
 export function AccountMenu({ gmail, onSignOut }: Props) {
+  const { isPro } = usePlan()
   const buttonRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
@@ -75,12 +78,25 @@ export function AccountMenu({ gmail, onSignOut }: Props) {
           <div className="w-72 px-3 py-2">
             <p className="text-xs text-fg-muted">Signed in as</p>
             <p className="truncate text-sm font-medium text-fg">{auth.email}</p>
+            <p className="mt-1 text-xs text-fg-muted">{isPro ? 'Pro plan' : 'Free plan'}</p>
           </div>
 
           <div className="my-1 border-t border-line" role="separator" />
 
-          <div className="px-3 py-2">
-            {loading ? (
+          {/* Gmail is Pro; a Free account has no connection to describe. */}
+          {/* w-72 on every block, not just the first: the popover is only as
+              wide as its widest child, and one paragraph without a width sent
+              it off the side of the screen. */}
+          <div className="w-72 px-3 py-2">
+            {!isPro ? (
+              <>
+                <p className="text-sm font-medium text-fg">Pro adds the automated half</p>
+                <p className="mt-1 text-xs text-fg-muted">
+                  Resume tailoring, honest scoring, cover letters, and Gmail keeping the tracker up
+                  to date. {PRO_AVAILABILITY}
+                </p>
+              </>
+            ) : loading ? (
               <p className="text-sm text-fg-muted">Checking your Gmail connection…</p>
             ) : connected ? (
               <>
