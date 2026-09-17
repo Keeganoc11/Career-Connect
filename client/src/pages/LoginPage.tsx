@@ -1,9 +1,20 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import { api, auth, ApiError, UNREACHABLE_MESSAGE } from '../api/client'
+import type { LoginResponse } from '../api/types'
 import { Banner, BrandMark, Button, Field, Input } from '../components/ui'
 
-export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+type Mode = 'login' | 'register'
+
+interface Props {
+  /** Owned by the URL, so signing in and signing up are pages you can link to. */
+  mode: Mode
+  onModeChange: (mode: Mode) => void
+  onBack: () => void
+  onLoggedIn: (login: LoginResponse) => void
+}
+
+export function LoginPage({ mode, onModeChange, onBack, onLoggedIn }: Props) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -12,25 +23,24 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
 
   // AppShell isn't mounted out here, so this page sets its own title.
   useEffect(() => {
-    document.title = 'Sign in · Career Connect'
-  }, [])
+    document.title = mode === 'login' ? 'Sign in · Career Connect' : 'Create your account · Career Connect'
+  }, [mode])
 
-  const switchMode = (next: 'login' | 'register') => {
-    setMode(next)
-    setError(null)
-  }
+  // The error belongs to the attempt, not the form — switching pages shouldn't
+  // carry "Invalid email or password" over to a sign-up.
+  useEffect(() => setError(null), [mode])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      auth.save(
+      const login =
         mode === 'login'
           ? await api.login(email, password)
-          : await api.register(email, password, displayName),
-      )
-      onLoggedIn()
+          : await api.register(email, password, displayName)
+      auth.save(login)
+      onLoggedIn(login)
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         setError('Invalid email or password.')
@@ -50,10 +60,14 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-surface-muted px-4 py-12">
       <div className="w-full max-w-sm">
-        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-2 rounded-sm text-sm font-semibold text-fg"
+        >
           <BrandMark className="size-7" />
-          <span className="text-sm font-semibold text-fg">Career Connect</span>
-        </div>
+          Career Connect
+        </button>
 
         <h1 className="mt-8 text-xl font-semibold text-fg">
           {mode === 'login' ? 'Welcome back' : 'Create your account'}
@@ -125,10 +139,21 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
           {mode === 'login' ? 'New here? ' : 'Already have an account? '}
           <button
             type="button"
-            onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}
+            onClick={() => onModeChange(mode === 'login' ? 'register' : 'login')}
             className="rounded-sm font-medium text-accent hover:text-accent-hover"
           >
             {mode === 'login' ? 'Create an account' : 'Sign in'}
+          </button>
+        </p>
+
+        <p className="mt-6 text-center">
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex items-center gap-1.5 rounded-sm text-sm text-fg-muted hover:text-fg"
+          >
+            <ArrowLeft className="size-4" aria-hidden />
+            What Career Connect does
           </button>
         </p>
       </div>

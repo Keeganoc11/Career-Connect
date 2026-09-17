@@ -214,6 +214,7 @@ The app ships as a single Docker image (`Dockerfile` at the repo root) — the A
    |---|---|
    | `Jwt__Key` | A long random secret (e.g. `openssl rand -base64 48`) — never reuse the dev value from `appsettings.Development.json` |
    | `Seed__Email` / `Seed__Password` | Your real login for this deployed instance — **do not** reuse the dev seed credentials |
+   | `Billing__ProEmails` | Comma-separated emails that get Pro without paying — put your own account here, or it drops to the Free tracker like everyone else |
    | `ANTHROPIC_API_KEY` | Your Claude API key (optional — match scoring/email classification stay disabled without it) |
    | `Gmail__ClientId` / `Gmail__ClientSecret` | Your Google OAuth client (optional — Gmail features stay disabled without it) |
    | `Gmail__RedirectUri` | `https://<your-railway-domain>/api/gmail/callback` |

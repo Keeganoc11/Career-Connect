@@ -16,7 +16,7 @@ export const FREE_FEATURES = [
   'Paste the job description and keep it with the job',
   'Move a job through the pipeline as you hear back',
   'Log interviews and see what’s coming up',
-  'Add an interview to your calendar',
+  'Download an interview as a calendar file',
 ]
 
 export const PRO_FEATURES = [
