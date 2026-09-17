@@ -17,6 +17,8 @@ import type {
   JobPostingExtraction,
   LoginResponse,
   MatchResult,
+  MeResponse,
+  PlanTier,
   PrepRun,
   Resume,
   ResumeInput,
@@ -26,6 +28,7 @@ import type {
 
 const TOKEN_KEY = 'careerconnect.token'
 const EMAIL_KEY = 'careerconnect.email'
+const PLAN_KEY = 'careerconnect.plan'
 
 // Local dev runs the API and client as separate processes on different
 // ports, so "unreachable" usually means the API terminal isn't running —
@@ -54,13 +57,26 @@ export const auth = {
   get email() {
     return localStorage.getItem(EMAIL_KEY)
   },
+  /**
+   * The plan the last response mentioned. Only a first-paint hint — the server
+   * decides on every request, and the app re-reads it from /api/auth/me on
+   * load — but it stops the app flashing the Free layout at a Pro user.
+   */
+  get plan(): PlanTier {
+    return localStorage.getItem(PLAN_KEY) === 'Pro' ? 'Pro' : 'Free'
+  },
+  set plan(plan: PlanTier) {
+    localStorage.setItem(PLAN_KEY, plan)
+  },
   save(login: LoginResponse) {
     localStorage.setItem(TOKEN_KEY, login.token)
     localStorage.setItem(EMAIL_KEY, login.email)
+    localStorage.setItem(PLAN_KEY, login.plan)
   },
   clear() {
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(EMAIL_KEY)
+    localStorage.removeItem(PLAN_KEY)
   },
 }
 
@@ -200,6 +216,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     })
+  },
+
+  /** Who's signed in, and on what plan — re-read on load so an upgrade lands without signing out. */
+  me() {
+    return request<MeResponse>('/api/auth/me')
   },
 
   register(email: string, password: string, displayName?: string) {

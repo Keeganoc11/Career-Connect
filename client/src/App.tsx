@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { auth, setUnauthorizedHandler } from './api/client'
+import { PlanProvider } from './lib/plan'
 import { LoginPage } from './pages/LoginPage'
 import { Workspace } from './components/Workspace'
 
@@ -25,12 +26,16 @@ export default function App() {
     return <LoginPage onLoggedIn={() => setLoggedIn(true)} />
   }
 
+  // The plan is only fetched for a signed-in session, so the provider lives
+  // inside the gate rather than around it.
   return (
-    <Workspace
-      onSignOut={() => {
-        auth.clear()
-        setLoggedIn(false)
-      }}
-    />
+    <PlanProvider>
+      <Workspace
+        onSignOut={() => {
+          auth.clear()
+          setLoggedIn(false)
+        }}
+      />
+    </PlanProvider>
   )
 }

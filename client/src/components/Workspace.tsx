@@ -6,6 +6,7 @@ import {
   type TrackerIntent,
   type TrackerIntentRequest,
 } from '../lib/trackerIntent'
+import { usePlan } from '../lib/planContext'
 import { useGmailConnection } from '../lib/useGmailConnection'
 import { AppShell } from './AppShell'
 import { EmailUpdatesModal } from './EmailUpdatesModal'
@@ -14,6 +15,7 @@ import { JobPage } from '../pages/JobPage'
 import { ResumesPage } from '../pages/ResumesPage'
 import { TailorPage } from '../pages/TailorPage'
 import { TrackerPage } from '../pages/TrackerPage'
+import { UpgradePage } from '../pages/UpgradePage'
 
 /**
  * The signed-in app: navigation, the Gmail connection, and the pages.
@@ -36,7 +38,8 @@ export function Workspace({ onSignOut }: { onSignOut: () => void }) {
   const [dataVersion, setDataVersion] = useState(0)
   const bumpData = useCallback(() => setDataVersion((v) => v + 1), [])
 
-  const gmail = useGmailConnection(bumpData)
+  const { isPro } = usePlan()
+  const gmail = useGmailConnection(bumpData, isPro)
 
   const tab: Tab = route.view === 'job' ? 'tracker' : route.view
   const openTab = (next: Tab) => navigate({ view: next })
@@ -91,12 +94,23 @@ export function Workspace({ onSignOut }: { onSignOut: () => void }) {
         />
       )}
       <div hidden={route.view !== 'tailor'}>
-        <TailorPage
-          dataVersion={dataVersion}
-          onOpenJob={openJob}
-          onGoToResumes={() => openTab('resumes')}
-          onDataChanged={bumpData}
-        />
+        {/* Swapped out rather than gated inside the page: these pages fetch on
+            mount, and every request they make is one a Free account is refused. */}
+        {isPro ? (
+          <TailorPage
+            dataVersion={dataVersion}
+            onOpenJob={openJob}
+            onGoToResumes={() => openTab('resumes')}
+            onDataChanged={bumpData}
+          />
+        ) : (
+          <UpgradePage
+            title="Tailor"
+            description="Paste a job description, get a resume written for it."
+            panelTitle="Tailoring is part of Pro"
+            panelDescription="Paste what the posting says, and Pro rewrites your resume for it in your own format — then tells you honestly where you stand."
+          />
+        )}
       </div>
       <div hidden={route.view !== 'agenda'}>
         <AgendaPage
@@ -132,7 +146,16 @@ export function Workspace({ onSignOut }: { onSignOut: () => void }) {
         />
       </div>
       <div hidden={route.view !== 'resumes'}>
-        <ResumesPage dataVersion={dataVersion} />
+        {isPro ? (
+          <ResumesPage dataVersion={dataVersion} />
+        ) : (
+          <UpgradePage
+            title="Resumes"
+            description="The resume everything else is written from."
+            panelTitle="Resumes are part of Pro"
+            panelDescription="Your resume lives here so Pro can tailor it for a specific job and score it against what a posting asks for."
+          />
+        )}
       </div>
 
       {emailUpdatesOpen && (

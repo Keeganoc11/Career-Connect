@@ -7,6 +7,9 @@ namespace CareerConnect.Api.Controllers;
 
 [ApiController]
 [Authorize]
+// The resume library exists to feed tailoring and scoring; on Free there is
+// nothing to feed, so the whole controller is Pro.
+[ProOnly]
 [Route("api/resumes")]
 public class ResumesController(IResumeService resumes, IResumeRenderer renderer) : ApiControllerBase
 {

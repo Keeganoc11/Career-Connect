@@ -34,6 +34,10 @@ public static class DbSeeder
             Email = email,
             PasswordHash = string.Empty,
             DisplayName = config["Seed:DisplayName"],
+            // The seeded account is the operator's own — it gets the full app
+            // without a subscription, same as anyone in Billing:ProEmails.
+            Plan = PlanTier.Pro,
+            PlanChangedAtUtc = DateTime.UtcNow,
             CreatedAtUtc = DateTime.UtcNow
         };
         user.PasswordHash = new PasswordHasher<User>().HashPassword(user, password);

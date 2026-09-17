@@ -10,6 +10,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import type { Application } from '../api/types'
+import { usePlan } from '../lib/planContext'
 import { IconButton, Menu, type MenuItem } from './ui'
 
 interface Props {
@@ -38,6 +39,7 @@ export function ApplicationActionsMenu({
   onInterviewPrep,
   onDelete,
 }: Props) {
+  const { isPro } = usePlan()
   const buttonRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
 
@@ -60,19 +62,26 @@ export function ApplicationActionsMenu({
       icon: <CalendarDays className="size-4" aria-hidden />,
       onSelect: onInterviews,
     },
-    {
-      key: 'cover-letter',
-      label: 'Cover letter',
-      icon: <FileText className="size-4" aria-hidden />,
-      onSelect: onCoverLetter,
-    },
-    {
-      key: 'interview-prep',
-      label: 'Interview prep',
-      icon: <MessageSquareText className="size-4" aria-hidden />,
-      onSelect: onInterviewPrep,
-    },
   ]
+
+  // Both are written by a model. A Free menu shows what it can actually do
+  // rather than items that open a dialog only to refuse.
+  if (isPro) {
+    items.push(
+      {
+        key: 'cover-letter',
+        label: 'Cover letter',
+        icon: <FileText className="size-4" aria-hidden />,
+        onSelect: onCoverLetter,
+      },
+      {
+        key: 'interview-prep',
+        label: 'Interview prep',
+        icon: <MessageSquareText className="size-4" aria-hidden />,
+        onSelect: onInterviewPrep,
+      },
+    )
+  }
 
   if (application.jobPostingUrl) {
     items.push({

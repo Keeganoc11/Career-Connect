@@ -1,5 +1,7 @@
 using CareerConnect.Api.Data;
 using CareerConnect.Api.Domain;
+using CareerConnect.Api.Services;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,6 +18,13 @@ public sealed class TestDatabase : IDisposable
 
     public AppDbContext Db { get; }
 
+    /// <summary>
+    /// A real plan service over this database, with no complimentary emails
+    /// configured — services under test take the interface, and faking it would
+    /// only test the fake.
+    /// </summary>
+    public IPlanService Plans => new PlanService(Db, new ConfigurationBuilder().Build());
+
     public TestDatabase()
     {
         _connection = new SqliteConnection("DataSource=:memory:");
@@ -27,13 +36,18 @@ public sealed class TestDatabase : IDisposable
         Db.Database.EnsureCreated();
     }
 
-    public Guid SeedUser(string email)
+    /// <summary>
+    /// Pro by default: most of what there is to test is the automated tier, and
+    /// a test that cares about Free says so.
+    /// </summary>
+    public Guid SeedUser(string email, PlanTier plan = PlanTier.Pro)
     {
         var user = new User
         {
             Id = Guid.NewGuid(),
             Email = email,
             PasswordHash = "not-a-real-hash",
+            Plan = plan,
             CreatedAtUtc = DateTime.UtcNow,
         };
         Db.Users.Add(user);

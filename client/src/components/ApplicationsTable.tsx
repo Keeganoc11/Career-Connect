@@ -2,6 +2,7 @@ import { ArrowDown, ArrowUp, ExternalLink } from 'lucide-react'
 import type { Application, ApplicationStatus, MatchResult, PrepRun } from '../api/types'
 import { formatDate, formatRelative, formatUntil } from '../lib/format'
 import { nextInterview } from '../lib/interviews'
+import { usePlan } from '../lib/planContext'
 import type { SortKey } from '../lib/sortApplications'
 import { ApplicationActionsMenu } from './ApplicationActionsMenu'
 import { MatchScoreCell } from './MatchScoreCell'
@@ -30,10 +31,10 @@ interface Props extends ApplicationsViewProps {
   onSort: (key: SortKey) => void
 }
 
-const COLUMNS: { key: SortKey; label: string; className?: string }[] = [
+const COLUMNS: { key: SortKey; label: string; className?: string; pro?: true }[] = [
   { key: 'companyName', label: 'Application' },
   { key: 'status', label: 'Status' },
-  { key: 'matchScore', label: 'Match' },
+  { key: 'matchScore', label: 'Match', pro: true },
   { key: 'dateApplied', label: 'Date' },
   { key: 'updatedAtUtc', label: 'Last activity', className: 'hidden lg:table-cell' },
 ]
@@ -58,12 +59,17 @@ export function ApplicationsTable({
   onEdit,
   onDelete,
 }: Props) {
+  // Match and Tailoring are both filled in by tailoring, so on Free they'd be
+  // two columns of dashes.
+  const { isPro } = usePlan()
+  const columns = COLUMNS.filter((column) => isPro || !column.pro)
+
   return (
     <div className="overflow-hidden rounded-surface border border-line bg-surface">
       <table className="w-full text-left">
         <thead>
           <tr className="border-b border-line">
-            {COLUMNS.map((column) => {
+            {columns.map((column) => {
               const active = sortKey === column.key
               const Arrow = sortAsc ? ArrowUp : ArrowDown
               return (
@@ -86,9 +92,11 @@ export function ApplicationsTable({
                 </th>
               )
             })}
-            <th scope="col" className="px-4 py-2.5">
-              <span className="text-xs font-medium text-fg-muted">Tailoring</span>
-            </th>
+            {isPro && (
+              <th scope="col" className="px-4 py-2.5">
+                <span className="text-xs font-medium text-fg-muted">Tailoring</span>
+              </th>
+            )}
             <th scope="col" className="px-4 py-2.5">
               <span className="sr-only">Actions</span>
             </th>
@@ -136,9 +144,14 @@ export function ApplicationsTable({
                     onChange={(status) => onStatusChange(application.id, status)}
                   />
                 </td>
-                <td className="px-4 py-3">
-                  <MatchScoreCell match={matches[application.id]} onOpen={() => onOpenJob(application)} />
-                </td>
+                {isPro && (
+                  <td className="px-4 py-3">
+                    <MatchScoreCell
+                      match={matches[application.id]}
+                      onOpen={() => onOpenJob(application)}
+                    />
+                  </td>
+                )}
                 <td className="px-4 py-3 text-sm whitespace-nowrap text-fg-muted tabular-nums">
                   {/* A Preparing row hasn't been applied to yet, so the date is
                       a target rather than a record of what happened. */}
@@ -148,13 +161,15 @@ export function ApplicationsTable({
                 <td className="hidden px-4 py-3 text-sm whitespace-nowrap text-fg-muted lg:table-cell">
                   {formatRelative(application.updatedAtUtc)}
                 </td>
-                <td className="px-4 py-3">
-                  <PrepStatusCell
-                    run={prepRuns[application.id]}
-                    hasJobDescription={Boolean(application.jobDescriptionText)}
-                    onOpen={() => onOpenJob(application)}
-                  />
-                </td>
+                {isPro && (
+                  <td className="px-4 py-3">
+                    <PrepStatusCell
+                      run={prepRuns[application.id]}
+                      hasJobDescription={Boolean(application.jobDescriptionText)}
+                      onOpen={() => onOpenJob(application)}
+                    />
+                  </td>
+                )}
                 <td className="px-4 py-3 text-right">
                   <ApplicationActionsMenu
                     application={application}

@@ -27,6 +27,7 @@ import {
   toast,
 } from '../components/ui'
 import { errorMessage } from '../lib/errors'
+import { usePlan } from '../lib/planContext'
 import { useAsyncAction } from '../lib/useAsyncAction'
 import { sortApplications, type SortKey } from '../lib/sortApplications'
 import type { TrackerIntent } from '../lib/trackerIntent'
@@ -60,6 +61,7 @@ export function TrackerPage({
   onDataChanged,
   onDeleted,
 }: Props) {
+  const { isPro } = usePlan()
   const [applications, setApplications] = useState<Application[]>([])
   const [matches, setMatches] = useState<Record<string, MatchResult>>({})
   const [prepRuns, setPrepRuns] = useState<Record<string, PrepRun>>({})
@@ -93,10 +95,12 @@ export function TrackerPage({
       // No getSummary: the status counts are computed from this list, so they
       // can't disagree with the rows, and there's no second request popping the
       // layout after the page has drawn.
+      // Scores and prep runs only exist on Pro, and both endpoints answer 402
+      // there — asking anyway would fail the whole load.
       const [list, latestMatches, latestPrepRuns] = await Promise.all([
         api.listApplications(),
-        api.listMatches(),
-        api.listPrepRuns(),
+        isPro ? api.listMatches() : Promise.resolve({}),
+        isPro ? api.listPrepRuns() : Promise.resolve({}),
       ])
       setApplications(list)
       setMatches(latestMatches)
@@ -107,7 +111,7 @@ export function TrackerPage({
     } finally {
       setLoading(false)
     }
-  }, [handleError])
+  }, [handleError, isPro])
 
   useEffect(() => {
     void refresh()
@@ -250,7 +254,7 @@ export function TrackerPage({
 
     // The whole point of capturing a posting is to tailor for it, so a new one
     // with a description goes straight to its page with tailoring under way.
-    if (created && created.jobDescriptionText && created.status === 'Preparing') {
+    if (isPro && created && created.jobDescriptionText && created.status === 'Preparing') {
       try {
         await api.startPrep(created.id)
       } catch (e) {

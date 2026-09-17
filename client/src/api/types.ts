@@ -340,9 +340,19 @@ export interface InterviewPrep {
   talkingPoints: TalkingPoint[]
 }
 
+/** Free is the plain tracker; Pro is everything the app does on its own. */
+export type PlanTier = 'Free' | 'Pro'
+
 export interface LoginResponse {
   token: string
   email: string
   displayName: string | null
   expiresAtUtc: string
+  plan: PlanTier
+}
+
+export interface MeResponse {
+  email: string
+  displayName: string | null
+  plan: PlanTier
 }

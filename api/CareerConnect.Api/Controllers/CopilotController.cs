@@ -7,6 +7,7 @@ namespace CareerConnect.Api.Controllers;
 
 [ApiController]
 [Authorize]
+[ProOnly]
 [Route("api/copilot")]
 public class CopilotController(ICopilotService copilot) : ApiControllerBase
 {

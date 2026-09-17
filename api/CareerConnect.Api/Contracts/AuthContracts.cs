@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using CareerConnect.Api.Domain;
 
 namespace CareerConnect.Api.Contracts;
 
@@ -29,4 +30,19 @@ public class LoginResponse
     public required string Email { get; init; }
     public string? DisplayName { get; init; }
     public required DateTime ExpiresAtUtc { get; init; }
+
+    /// <summary>
+    /// Free or Pro. Sent with the token so the client can render the right app
+    /// on first paint; it isn't a JWT claim, because a plan can change while a
+    /// token is still valid and the client re-reads it from /api/auth/me.
+    /// </summary>
+    public required PlanTier Plan { get; init; }
+}
+
+/// <summary>Who the caller is, re-fetched on load so a plan change lands without signing out.</summary>
+public class MeResponse
+{
+    public required string Email { get; init; }
+    public string? DisplayName { get; init; }
+    public required PlanTier Plan { get; init; }
 }

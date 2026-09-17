@@ -26,7 +26,7 @@ public interface IAuthService
     Task<RegisterOutcome> RegisterAsync(string email, string password, string? displayName);
 }
 
-public class AuthService(AppDbContext db, ITokenService tokenService) : IAuthService
+public class AuthService(AppDbContext db, ITokenService tokenService, IPlanService plans) : IAuthService
 {
     private static readonly PasswordHasher<User> PasswordHasher = new();
 
@@ -39,7 +39,7 @@ public class AuthService(AppDbContext db, ITokenService tokenService) : IAuthSer
             return new LoginOutcome.InvalidCredentials();
         }
 
-        return new LoginOutcome.Success(ToLoginResponse(user));
+        return new LoginOutcome.Success(await ToLoginResponseAsync(user));
     }
 
     public async Task<RegisterOutcome> RegisterAsync(string email, string password, string? displayName)
@@ -73,10 +73,10 @@ public class AuthService(AppDbContext db, ITokenService tokenService) : IAuthSer
             return new RegisterOutcome.EmailAlreadyRegistered();
         }
 
-        return new RegisterOutcome.Success(ToLoginResponse(user));
+        return new RegisterOutcome.Success(await ToLoginResponseAsync(user));
     }
 
-    private LoginResponse ToLoginResponse(User user)
+    private async Task<LoginResponse> ToLoginResponseAsync(User user)
     {
         var (token, expiresAtUtc) = tokenService.CreateToken(user);
         return new LoginResponse
@@ -85,6 +85,9 @@ public class AuthService(AppDbContext db, ITokenService tokenService) : IAuthSer
             Email = user.Email,
             DisplayName = user.DisplayName,
             ExpiresAtUtc = expiresAtUtc,
+            // Not user.Plan: a complimentary account is Pro without the row
+            // saying so, and the plan service is the one place that knows.
+            Plan = await plans.GetPlanAsync(user.Id),
         };
     }
 }

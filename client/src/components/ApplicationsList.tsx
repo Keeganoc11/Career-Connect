@@ -1,6 +1,7 @@
 import type { Application } from '../api/types'
 import { formatDate, formatUntil } from '../lib/format'
 import { nextInterview } from '../lib/interviews'
+import { usePlan } from '../lib/planContext'
 import { ApplicationActionsMenu } from './ApplicationActionsMenu'
 import type { ApplicationsViewProps } from './ApplicationsTable'
 import { MatchScoreCell } from './MatchScoreCell'
@@ -26,6 +27,8 @@ export function ApplicationsList({
   onEdit,
   onDelete,
 }: ApplicationsViewProps) {
+  const { isPro } = usePlan()
+
   return (
     <ul className="divide-y divide-line overflow-hidden rounded-surface border border-line bg-surface">
       {applications.map((application: Application) => {
@@ -62,12 +65,19 @@ export function ApplicationsList({
                 disabled={busyId === application.id}
                 onChange={(status) => onStatusChange(application.id, status)}
               />
-              <MatchScoreCell match={matches[application.id]} onOpen={() => onOpenJob(application)} />
-              <PrepStatusCell
-                run={prepRuns[application.id]}
-                hasJobDescription={Boolean(application.jobDescriptionText)}
-                onOpen={() => onOpenJob(application)}
-              />
+              {isPro && (
+                <>
+                  <MatchScoreCell
+                    match={matches[application.id]}
+                    onOpen={() => onOpenJob(application)}
+                  />
+                  <PrepStatusCell
+                    run={prepRuns[application.id]}
+                    hasJobDescription={Boolean(application.jobDescriptionText)}
+                    onOpen={() => onOpenJob(application)}
+                  />
+                </>
+              )}
             </div>
 
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-fg-muted">

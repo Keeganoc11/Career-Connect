@@ -19,6 +19,7 @@ public class ScheduledGmailScanRunner(
     AppDbContext db,
     IGmailUpdateScanner scanner,
     IGmailPendingUpdates pendingUpdates,
+    IPlanService plans,
     ILogger<ScheduledGmailScanRunner> logger) : IScheduledGmailScanRunner
 {
     public async Task RunAllAsync(CancellationToken cancellationToken = default)
@@ -27,7 +28,12 @@ public class ScheduledGmailScanRunner(
             .Select(g => g.UserId)
             .ToListAsync(cancellationToken);
 
-        foreach (var userId in userIds)
+        // A connection can outlive the plan that created it — someone who
+        // downgrades keeps the stored token until they disconnect, and their
+        // mail must stop being read the moment they stop paying for it.
+        var pro = await plans.FilterProAsync(userIds, cancellationToken);
+
+        foreach (var userId in userIds.Where(pro.Contains))
         {
             try
             {

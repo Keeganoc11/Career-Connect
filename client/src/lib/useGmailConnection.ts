@@ -42,8 +42,13 @@ export interface GmailConnection {
  *
  * @param onApplicationsChanged Accepting an update changes an application, so
  * the tracker has to refetch.
+ * @param enabled False on Free, where every Gmail endpoint answers 402 — asking
+ * anyway would spend a request per load to be told no.
  */
-export function useGmailConnection(onApplicationsChanged: () => void): GmailConnection {
+export function useGmailConnection(
+  onApplicationsChanged: () => void,
+  enabled: boolean,
+): GmailConnection {
   const [status, setStatus] = useState<GmailConnectionStatus | null>(null)
   const [updates, setUpdates] = useState<GmailScanResult | null>(null)
   const [checking, setChecking] = useState(false)
@@ -52,6 +57,7 @@ export function useGmailConnection(onApplicationsChanged: () => void): GmailConn
   const [disconnectError, setDisconnectError] = useState<string | null>(null)
 
   const refreshStatus = useCallback(async () => {
+    if (!enabled) return
     try {
       const latest = await api.getGmailStatus()
       setStatus(latest)
@@ -65,7 +71,7 @@ export function useGmailConnection(onApplicationsChanged: () => void): GmailConn
     } catch {
       // A dead server shows up across the whole page; don't add noise here.
     }
-  }, [])
+  }, [enabled])
 
   useEffect(() => {
     void refreshStatus()
@@ -77,6 +83,8 @@ export function useGmailConnection(onApplicationsChanged: () => void): GmailConn
    * not the calendar scope was granted, so there was no way to tell.
    */
   useEffect(() => {
+    if (!enabled) return
+
     const params = new URLSearchParams(window.location.search)
     const result = params.get('gmail')
     if (!result) return

@@ -40,6 +40,7 @@ public class GmailController(
     /// authenticated JSON call — the client does the actual navigation.
     /// </summary>
     [HttpGet("connect")]
+    [ProOnly]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
@@ -131,6 +132,7 @@ public class GmailController(
     /// doesn't clear it — an update stays until it's accepted or dismissed.
     /// </summary>
     [HttpGet("pending-suggestions")]
+    [ProOnly]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -142,6 +144,7 @@ public class GmailController(
 
     /// <summary>Hides a suggested status change without applying it.</summary>
     [HttpPost("pending-suggestions/status-updates/dismiss")]
+    [ProOnly]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DismissStatusUpdate(
@@ -154,6 +157,7 @@ public class GmailController(
 
     /// <summary>Hides a suggested new application without adding it.</summary>
     [HttpPost("pending-suggestions/new-applications/dismiss")]
+    [ProOnly]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DismissNewApplication(
@@ -165,6 +169,7 @@ public class GmailController(
 
     /// <summary>Applies a status change the user accepted from a scan, recording that email is where it came from.</summary>
     [HttpPost("suggestions/accept")]
+    [ProOnly]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -213,6 +218,7 @@ public class GmailController(
     /// beyond the one automatic Preparing → Applied confirmation.
     /// </summary>
     [HttpPost("scan")]
+    [ProOnly]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]

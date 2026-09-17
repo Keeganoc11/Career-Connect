@@ -76,6 +76,7 @@ public static class AutoApplyPolicy
 public class ApplicationAutomation(
     AppDbContext db,
     IInterviewService interviews,
+    IPlanService plans,
     IConfiguration configuration,
     ILogger<ApplicationAutomation> logger) : IApplicationAutomation
 {
@@ -164,6 +165,12 @@ public class ApplicationAutomation(
                      && a.UpdatedAtUtc <= cutoff
                      && !a.Interviews.Any(i => i.ScheduledAtUtc >= utcNow))
             .ToListAsync(cancellationToken);
+
+        // Ghosting is the app changing a status on its own, which is exactly
+        // what Free doesn't get — a Free tracker only moves when its owner
+        // moves it.
+        var pro = await plans.FilterProAsync(silent.Select(a => a.UserId), cancellationToken);
+        silent = silent.Where(a => pro.Contains(a.UserId)).ToList();
 
         foreach (var application in silent)
         {

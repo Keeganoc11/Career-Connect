@@ -25,6 +25,7 @@ public class ApplicationsController(
 
     /// <summary>Fetches a job posting URL and extracts company/role/description to prefill the add-application form. Creates nothing itself.</summary>
     [HttpPost("extract-from-url")]
+    [ProOnly]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(StatusCodes.Status502BadGateway)]
@@ -73,6 +74,7 @@ public class ApplicationsController(
     /// with tailoring already running — the whole "add a job" flow in one call.
     /// </summary>
     [HttpPost("capture")]
+    [ProOnly]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -183,6 +185,7 @@ public class ApplicationsController(
     /// Running run; poll GET /prep for progress.
     /// </summary>
     [HttpPost("{id:guid}/prep")]
+    [ProOnly]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -218,6 +221,7 @@ public class ApplicationsController(
 
     /// <summary>A follow-up email to copy and send yourself. Nothing is sent from here.</summary>
     [HttpPost("{id:guid}/follow-up")]
+    [ProOnly]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status502BadGateway)]
@@ -244,6 +248,7 @@ public class ApplicationsController(
 
     /// <summary>The tailored resume as a PDF, in the base resume's exact format.</summary>
     [HttpGet("{id:guid}/resume.pdf")]
+    [ProOnly]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> TailoredResumePdf(Guid id)
     {
@@ -280,6 +285,7 @@ public class ApplicationsController(
 
     /// <summary>Runs a fresh resume/job-description comparison and stores the result.</summary>
     [HttpPost("{id:guid}/match")]
+    [ProOnly]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -325,6 +331,7 @@ public class ApplicationsController(
 
     /// <summary>Generates a cover letter for this application against its active resume. Saves nothing.</summary>
     [HttpPost("{id:guid}/cover-letter")]
+    [ProOnly]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -363,6 +370,7 @@ public class ApplicationsController(
 
     /// <summary>Generates interview questions and talking points for this application against its active resume. Saves nothing.</summary>
     [HttpPost("{id:guid}/interview-prep")]
+    [ProOnly]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]

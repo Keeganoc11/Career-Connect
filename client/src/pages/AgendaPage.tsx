@@ -9,6 +9,7 @@ import type { TrackerIntentRequest } from '../lib/trackerIntent'
 import { ActivityFeed } from '../components/ActivityFeed'
 import { FollowUpModal } from '../components/FollowUpModal'
 import { PipelineReview } from '../components/PipelineReview'
+import { usePlan } from '../lib/planContext'
 import {
   Badge,
   Banner,
@@ -60,6 +61,7 @@ const NUDGE_ACTIONS: Record<
 }
 
 export function AgendaPage({ dataVersion, onOpenJob, onIntent, onDataChanged }: Props) {
+  const { isPro } = usePlan()
   const [agenda, setAgenda] = useState<Agenda | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -157,6 +159,7 @@ export function AgendaPage({ dataVersion, onOpenJob, onIntent, onDataChanged }: 
                   busy={ghostingId === nudge.applicationId}
                   onIntent={onIntent}
                   onOpenJob={onOpenJob}
+                  isPro={isPro}
                   onFollowUp={() => setFollowUpTarget(nudge)}
                   onMarkGhosted={() => void markGhosted(nudge)}
                 />
@@ -168,9 +171,8 @@ export function AgendaPage({ dataVersion, onOpenJob, onIntent, onDataChanged }: 
 
       <ActivityFeed dataVersion={dataVersion} onDataChanged={onDataChanged} onOpenJob={onOpenJob} />
 
-      <PipelineReview
-        onOpenApplication={onOpenJob}
-      />
+      {/* Reads every open application with a model call — Pro only. */}
+      {isPro && <PipelineReview onOpenApplication={onOpenJob} />}
 
       {followUpTarget && (
         <FollowUpModal
@@ -246,6 +248,7 @@ function InterviewCard({
 function NudgeRow({
   nudge,
   busy,
+  isPro,
   onIntent,
   onOpenJob,
   onFollowUp,
@@ -253,6 +256,7 @@ function NudgeRow({
 }: {
   nudge: AgendaNudge
   busy: boolean
+  isPro: boolean
   onIntent: (request: TrackerIntentRequest) => void
   onOpenJob: (applicationId: string) => void
   onFollowUp: () => void
@@ -260,6 +264,10 @@ function NudgeRow({
 }) {
   const action = NUDGE_ACTIONS[nudge.kind] ?? NUDGE_ACTIONS.Silent
   const Icon = action.icon
+
+  // The nudge itself is fine on Free — a job has gone quiet either way — but
+  // writing the follow-up is the Pro part, so it opens the job instead.
+  const writesFollowUp = Boolean(action.followUp) && isPro
 
   return (
     <li className="flex items-start gap-3 p-4">
@@ -275,13 +283,13 @@ function NudgeRow({
         loading={busy}
         onClick={() => {
           const request = action.request?.(nudge.applicationId)
-          if (action.followUp) onFollowUp()
-          else if (action.openJob) onOpenJob(nudge.applicationId)
+          if (writesFollowUp) onFollowUp()
+          else if (action.followUp || action.openJob) onOpenJob(nudge.applicationId)
           else if (request) onIntent(request)
           else onMarkGhosted()
         }}
       >
-        {action.label}
+        {writesFollowUp || !action.followUp ? action.label : 'Open'}
       </Button>
     </li>
   )

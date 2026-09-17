@@ -14,6 +14,7 @@ import {
 import { api, ApiError } from '../api/client'
 import type { Application, ApplicationStatus, PrepRun, StatusChange } from '../api/types'
 import { FollowUpModal } from '../components/FollowUpModal'
+import { UpgradePanel } from '../components/UpgradePanel'
 import { PrepProgress } from '../components/PrepProgress'
 import { StatusMenu } from '../components/StatusMenu'
 import { TailoringReview } from '../components/TailoringReview'
@@ -34,6 +35,7 @@ import {
 import { errorMessage } from '../lib/errors'
 import { formatDate, formatDateTime, formatRelative, formatUntil } from '../lib/format'
 import { KIND_LABELS } from '../lib/interviews'
+import { usePlan } from '../lib/planContext'
 import { STATUS_LABELS } from '../lib/status'
 import type { TrackerIntentRequest } from '../lib/trackerIntent'
 import { useAsyncAction } from '../lib/useAsyncAction'
@@ -65,6 +67,7 @@ const FOLLOW_UP_STATUSES: ApplicationStatus[] = ['Applied', 'PhoneScreen', 'Inte
  * tailored resume and its reality check are the page, and the rest hangs off it.
  */
 export function JobPage({ applicationId, dataVersion, onBack, onIntent, onDataChanged }: Props) {
+  const { isPro } = usePlan()
   const [application, setApplication] = useState<Application | null>(null)
   const [run, setRun] = useState<PrepRun | null>(null)
   const [loading, setLoading] = useState(true)
@@ -81,10 +84,13 @@ export function JobPage({ applicationId, dataVersion, onBack, onIntent, onDataCh
     try {
       const [loaded, latest] = await Promise.all([
         api.getApplication(applicationId),
-        api.getPrepRun(applicationId).catch((e: unknown) => {
-          if (e instanceof ApiError && e.status === 404) return null
-          throw e
-        }),
+        // Nothing has ever tailored for a Free account, so there's no run to ask for.
+        isPro
+          ? api.getPrepRun(applicationId).catch((e: unknown) => {
+              if (e instanceof ApiError && e.status === 404) return null
+              throw e
+            })
+          : Promise.resolve(null),
       ])
       setApplication(loaded)
       setRun(latest)
@@ -96,7 +102,7 @@ export function JobPage({ applicationId, dataVersion, onBack, onIntent, onDataCh
     } finally {
       setLoading(false)
     }
-  }, [applicationId])
+  }, [applicationId, isPro])
 
   useEffect(() => {
     void load()
@@ -210,7 +216,7 @@ export function JobPage({ applicationId, dataVersion, onBack, onIntent, onDataCh
                 I applied
               </Button>
             )}
-            {FOLLOW_UP_STATUSES.includes(application.status) && (
+            {isPro && FOLLOW_UP_STATUSES.includes(application.status) && (
               <Button onClick={() => setFollowingUp(true)}>Draft follow-up</Button>
             )}
             <JobActions application={application} onIntent={onIntent} />
@@ -221,7 +227,13 @@ export function JobPage({ applicationId, dataVersion, onBack, onIntent, onDataCh
         {loadError && <Banner>{loadError}</Banner>}
 
         {/* The resume and its reality check are the page. */}
-        {!run ? (
+        {!isPro ? (
+          <UpgradePanel
+            compact
+            title="Tailoring is part of Pro"
+            description="Free keeps the job, the description and the pipeline. Pro rewrites your resume for this posting and tells you honestly how you stack up."
+          />
+        ) : !run ? (
           <Card>
             <EmptyState
               icon={<Sparkles className="size-5" aria-hidden />}

@@ -13,7 +13,7 @@ public sealed class AuthServiceTests : IDisposable
 
     public AuthServiceTests()
     {
-        _service = new AuthService(_fixture.Db, _tokenService);
+        _service = new AuthService(_fixture.Db, _tokenService, _fixture.Plans);
     }
 
     public void Dispose() => _fixture.Dispose();

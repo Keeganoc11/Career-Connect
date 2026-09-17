@@ -22,6 +22,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             user.Property(u => u.Email).HasMaxLength(320);
             user.HasIndex(u => u.Email).IsUnique();
             user.Property(u => u.DisplayName).HasMaxLength(200);
+            user.Property(u => u.Plan).HasConversion<string>().HasMaxLength(20);
         });
 
         modelBuilder.Entity<Application>(app =>

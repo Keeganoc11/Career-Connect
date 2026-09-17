@@ -25,6 +25,7 @@ public sealed class ApplicationAutomationTests : IDisposable
     private ApplicationAutomation Automation(int? ghostAfterDays = null) => new(
         _fixture.Db,
         new InterviewService(_fixture.Db, _calendar),
+        _fixture.Plans,
         new ConfigurationBuilder()
             .AddInMemoryCollection(ghostAfterDays is null ? [] : [new("Automation:GhostAfterDays", ghostAfterDays.ToString())])
             .Build(),
@@ -176,6 +177,25 @@ public sealed class ApplicationAutomationTests : IDisposable
         Assert.Equal(ApplicationStatus.Applied, (await ReloadAsync(upcoming.Id)).Status);
         var activity = await _fixture.Db.ActivityEvents.AsNoTracking().SingleAsync();
         Assert.Equal(ActivityTrigger.Inactivity, activity.Trigger);
+    }
+
+    [Fact]
+    public async Task GhostSilentApplicationsAsync_LeavesFreeUsersAlone()
+    {
+        // Ghosting is the app moving a status by itself, which is the whole of
+        // what Free doesn't buy: a Free tracker only changes when its owner
+        // changes it.
+        var freeUser = _fixture.SeedUser("free@example.com", PlanTier.Free);
+        var free = _fixture.SeedApplication(freeUser, "FreeCo", status: ApplicationStatus.Applied);
+        var pro = _fixture.SeedApplication(_userId, "ProCo", status: ApplicationStatus.Applied);
+        free.UpdatedAtUtc = pro.UpdatedAtUtc = DateTime.UtcNow.AddDays(-31);
+        _fixture.Db.SaveChanges();
+
+        var count = await Automation().GhostSilentApplicationsAsync();
+
+        Assert.Equal(1, count);
+        Assert.Equal(ApplicationStatus.Applied, (await ReloadAsync(free.Id)).Status);
+        Assert.Equal(ApplicationStatus.Ghosted, (await ReloadAsync(pro.Id)).Status);
     }
 
     [Fact]

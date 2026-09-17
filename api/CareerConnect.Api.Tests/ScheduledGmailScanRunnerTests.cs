@@ -17,6 +17,7 @@ public sealed class ScheduledGmailScanRunnerTests : IDisposable
             _fixture.Db,
             _scanner,
             new GmailPendingUpdates(_fixture.Db, NullLogger<GmailPendingUpdates>.Instance),
+            _fixture.Plans,
             NullLogger<ScheduledGmailScanRunner>.Instance);
     }
 
@@ -64,6 +65,23 @@ public sealed class ScheduledGmailScanRunnerTests : IDisposable
         Assert.NotNull(connection.PendingScanResultJson);
         Assert.Contains("Acme", connection.PendingScanResultJson);
         Assert.NotNull(connection.PendingScanCompletedAtUtc);
+    }
+
+    [Fact]
+    public async Task RunAllAsync_SkipsFreeUsers()
+    {
+        // A Gmail connection outlives a downgrade — the token is still stored
+        // until they disconnect — so the plan, not the connection, decides
+        // whether their mail gets read.
+        var userId = _fixture.SeedUser("free@example.com", PlanTier.Free);
+        SeedConnection(userId);
+        _scanner.DefaultOutcome = new GmailScanOutcome.Success([], [], []);
+
+        await _runner.RunAllAsync();
+
+        Assert.Empty(_scanner.ScannedUserIds);
+        var connection = await _fixture.Db.GmailConnections.AsNoTracking().FirstAsync(g => g.UserId == userId);
+        Assert.Null(connection.PendingScanCompletedAtUtc);
     }
 
     [Fact]

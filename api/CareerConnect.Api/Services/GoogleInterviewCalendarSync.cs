@@ -5,7 +5,9 @@ using Google.Apis.Calendar.v3.Data;
 namespace CareerConnect.Api.Services;
 
 public class GoogleInterviewCalendarSync(
-    IGmailOAuthService oauth, ILogger<GoogleInterviewCalendarSync> logger) : IInterviewCalendarSync
+    IGmailOAuthService oauth,
+    IPlanService plans,
+    ILogger<GoogleInterviewCalendarSync> logger) : IInterviewCalendarSync
 {
     /// <summary>Emails rarely state an end time, and an hour is the common case for a screen or a round.</summary>
     private static readonly TimeSpan DefaultDuration = TimeSpan.FromHours(1);
@@ -15,6 +17,14 @@ public class GoogleInterviewCalendarSync(
     public async Task<string?> UpsertAsync(
         Guid userId, InterviewEvent interview, Application application, CancellationToken cancellationToken = default)
     {
+        // Pushing interviews to Google Calendar is part of the automated tier.
+        // Only the upsert is gated: deletes still run for anyone, so downgrading
+        // can never strand an event on someone's calendar.
+        if (!await plans.IsProAsync(userId, cancellationToken))
+        {
+            return null;
+        }
+
         using var calendar = await oauth.GetCalendarServiceAsync(userId, cancellationToken);
         if (calendar is null)
         {

@@ -23,6 +23,7 @@ public sealed class GmailUpdateScannerTests : IDisposable
         var automation = new ApplicationAutomation(
             _fixture.Db,
             new InterviewService(_fixture.Db, _calendar),
+            _fixture.Plans,
             new ConfigurationBuilder().Build(),
             NullLogger<ApplicationAutomation>.Instance);
         _scanner = new GmailUpdateScanner(_fixture.Db, _oauth, _mailReader, _classifier, _interviewExtractor, automation);
