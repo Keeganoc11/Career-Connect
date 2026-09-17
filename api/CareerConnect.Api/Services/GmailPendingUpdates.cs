@@ -65,9 +65,6 @@ public class GmailPendingUpdates(AppDbContext db, ILogger<GmailPendingUpdates> l
             .Select(a => new { a.Id, a.CompanyName, a.RoleTitle, a.Status })
             .ToListAsync(cancellationToken);
         var byId = applications.ToDictionary(a => a.Id);
-        var trackedCompanies = applications
-            .Select(a => a.CompanyName.Trim())
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // Drop anything the user already settled some other way — changed the
         // status themselves, deleted the application, added the company by
@@ -96,9 +93,8 @@ public class GmailPendingUpdates(AppDbContext db, ILogger<GmailPendingUpdates> l
             })
             .ToList();
 
-        var newApplications = stored.NewApplications
-            .Where(n => !trackedCompanies.Contains(n.CompanyName.Trim()))
-            .ToList();
+        var newApplications = DistinctJobs(stored.NewApplications
+            .Where(n => !applications.Any(a => CompanyNames.Same(a.CompanyName, n.CompanyName))));
 
         var autoApplied = stored.AutoApplied
             .Where(a => byId.ContainsKey(a.ApplicationId))
@@ -142,10 +138,7 @@ public class GmailPendingUpdates(AppDbContext db, ILogger<GmailPendingUpdates> l
                 stored.StatusUpdates.Concat(found.StatusUpdates),
                 s => (s.ApplicationId, s.SuggestedStatus),
                 s => s.EmailReceivedAtUtc),
-            NewApplications = NewestPerKey(
-                stored.NewApplications.Concat(found.NewApplications),
-                n => n.CompanyName.Trim().ToUpperInvariant(),
-                n => n.EmailReceivedAtUtc),
+            NewApplications = DistinctJobs(stored.NewApplications.Concat(found.NewApplications)),
             AutoApplied = NewestPerKey(
                 stored.AutoApplied.Concat(found.AutoApplied),
                 a => a.ApplicationId,
@@ -186,8 +179,10 @@ public class GmailPendingUpdates(AppDbContext db, ILogger<GmailPendingUpdates> l
         var stored = Deserialize(connection.PendingScanResultJson);
         Store(connection, stored with
         {
+            // Every spelling of the company goes with it, or dismissing "Delta
+            // Dental" would leave "Delta Dental MO" behind.
             NewApplications = stored.NewApplications
-                .Where(n => !string.Equals(n.CompanyName.Trim(), companyName.Trim(), StringComparison.OrdinalIgnoreCase))
+                .Where(n => !CompanyNames.Same(n.CompanyName, companyName))
                 .ToList(),
         });
         await db.SaveChangesAsync(cancellationToken);
@@ -226,6 +221,23 @@ public class GmailPendingUpdates(AppDbContext db, ILogger<GmailPendingUpdates> l
             logger.LogWarning(ex, "Discarding unreadable pending Gmail updates.");
             return new Stored();
         }
+    }
+
+    /// <summary>
+    /// One suggestion per job, newest email first. Several confirmations for
+    /// one application — or one company written three ways — are the same job.
+    /// </summary>
+    private static List<SuggestedNewApplicationResponse> DistinctJobs(IEnumerable<SuggestedNewApplicationResponse> items)
+    {
+        var kept = new List<SuggestedNewApplicationResponse>();
+        foreach (var item in items.OrderByDescending(n => n.EmailReceivedAtUtc))
+        {
+            if (!kept.Any(k => CompanyNames.Same(k.CompanyName, item.CompanyName) && CompanyNames.SameRole(k.RoleTitle, item.RoleTitle)))
+            {
+                kept.Add(item);
+            }
+        }
+        return kept;
     }
 
     private static List<T> NewestPerKey<T, TKey>(

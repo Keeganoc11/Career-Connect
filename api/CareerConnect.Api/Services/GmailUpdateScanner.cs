@@ -173,10 +173,6 @@ public class GmailUpdateScanner(
         // Defense in depth against the model re-reporting a company that's
         // already tracked, or reporting the same new company twice in one
         // scan — either would risk creating a duplicate application.
-        var trackedCompanies = applications
-            .Select(a => a.CompanyName.Trim())
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var seenCompanies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         var newApplications = new List<SuggestedNewApplication>();
         foreach (var candidate in result.NewApplications)
@@ -188,7 +184,10 @@ public class GmailUpdateScanner(
             }
 
             var companyName = candidate.CompanyName.Trim();
-            if (companyName.Length == 0 || trackedCompanies.Contains(companyName) || !seenCompanies.Add(companyName))
+            if (companyName.Length == 0
+                || applications.Any(a => CompanyNames.Same(a.CompanyName, companyName))
+                || newApplications.Any(n => CompanyNames.Same(n.CompanyName, companyName)
+                                         && CompanyNames.SameRole(n.RoleTitle, candidate.RoleTitle)))
             {
                 continue;
             }

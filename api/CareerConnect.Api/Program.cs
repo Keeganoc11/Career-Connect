@@ -178,8 +178,23 @@ if (app.Environment.IsDevelopment())
 // No-op locally (nothing is published to wwwroot in dev — the client runs
 // separately under Vite). In production the Dockerfile publishes the built
 // client into wwwroot, and this is what serves it.
+// index.html must be revalidated on every load, or a browser keeps running the
+// previous deploy's client for hours after a release. Everything under /assets
+// has a content hash in its name, so a changed file is a new URL and those can
+// be cached forever.
+var staticFiles = new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        context.Context.Response.Headers.CacheControl =
+            context.Context.Request.Path.StartsWithSegments("/assets")
+                ? "public, max-age=31536000, immutable"
+                : "no-cache";
+    },
+};
+
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(staticFiles);
 
 if (allowedOrigins.Length > 0)
 {
@@ -190,7 +205,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
-app.MapFallbackToFile("index.html");
+app.MapFallbackToFile("index.html", staticFiles);
 
 using (var scope = app.Services.CreateScope())
 {

@@ -299,4 +299,35 @@ public sealed class GmailPendingUpdatesTests : IDisposable
 
         Assert.Empty(await _fixture.Db.GmailConnections.ToListAsync());
     }
+
+    [Fact]
+    public async Task AddAsync_KeepsOneSuggestionPerJob_HoweverTheCompanyIsWritten()
+    {
+        await _pending.AddAsync(_userId, Found(newApplications:
+        [
+            NewApplication("Delta Dental of Missouri", Earlier),
+            NewApplication("Delta Dental MO", Later),
+            NewApplication("Delta Dental", Earlier),
+            NewApplication("Walmart", Earlier),
+        ]));
+
+        var read = await _pending.ReadAsync(_userId);
+
+        Assert.Equal(["Delta Dental MO", "Walmart"], read!.NewApplications.Select(n => n.CompanyName).OrderBy(n => n));
+    }
+
+    [Fact]
+    public async Task RemoveNewApplicationAsync_DismissesEverySpellingOfTheCompany()
+    {
+        await _pending.AddAsync(_userId, Found(newApplications:
+        [
+            NewApplication("Delta Dental of Missouri", Earlier),
+            NewApplication("Walmart", Earlier),
+        ]));
+
+        await _pending.RemoveNewApplicationAsync(_userId, "Delta Dental MO");
+
+        var read = await _pending.ReadAsync(_userId);
+        Assert.Equal("Walmart", Assert.Single(read!.NewApplications).CompanyName);
+    }
 }

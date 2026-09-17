@@ -229,7 +229,7 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
             ) : resumes.length === 0 ? (
               <EmptyState
                 title="No resumes yet"
-                description="Upload a PDF or Word doc, or paste the text in, to unlock match scoring."
+                description="Upload your resume as a PDF. Every tailored version is built from it, in its exact format."
               />
             ) : (
               <ul className="space-y-2">

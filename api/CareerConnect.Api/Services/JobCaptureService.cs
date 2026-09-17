@@ -150,13 +150,16 @@ public class JobCaptureService(
 
         if (!request.AllowDuplicate)
         {
-            var existing = await db.Applications
+            var tracked = await db.Applications
                 .AsNoTracking()
-                .Where(a => a.UserId == userId
-                    && a.CompanyName.ToLower() == companyName.ToLower()
-                    && a.RoleTitle.ToLower() == roleTitle.ToLower())
+                .Where(a => a.UserId == userId)
                 .Select(a => new { a.Id, a.CompanyName, a.RoleTitle })
-                .FirstOrDefaultAsync(cancellationToken);
+                .ToListAsync(cancellationToken);
+            // A role is compared exactly here (not "unstated matches anything"):
+            // two real postings at one company are common and both worth tracking.
+            var existing = tracked.FirstOrDefault(a =>
+                CompanyNames.Same(a.CompanyName, companyName)
+                && string.Equals(a.RoleTitle.Trim(), roleTitle, StringComparison.OrdinalIgnoreCase));
 
             if (existing is not null)
             {

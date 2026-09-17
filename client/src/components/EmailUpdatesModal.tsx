@@ -220,7 +220,7 @@ export function EmailUpdatesModal({
   return (
     <Modal
       title="Email updates"
-      description="Clear-cut updates from your email are applied for you and can be undone. Anything less certain waits here for you to decide."
+      description="Clear-cut ones are applied for you. The rest wait here."
       error={gmail.checkError}
       onClose={onClose}
       footerStart={
