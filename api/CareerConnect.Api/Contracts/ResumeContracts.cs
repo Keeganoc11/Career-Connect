@@ -41,8 +41,11 @@ public class ResumeSummaryResponse
     public required DateTime UpdatedAtUtc { get; init; }
 }
 
+/// <summary>
+/// No length limit on purpose: this is where everything that doesn't fit on a
+/// one-page resume goes — every project, in as much detail as the user wants.
+/// </summary>
 public class UpdateExtraFactsRequest
 {
-    [MaxLength(4000)]
     public string? ExtraFacts { get; init; }
 }

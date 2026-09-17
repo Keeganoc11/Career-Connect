@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Download, MoreHorizontal, Star, Trash2, Upload } from 'lucide-react'
-import { api } from '../api/client'
+import { api, ApiError } from '../api/client'
 import type { Resume, ResumeSummary } from '../api/types'
 import { formatRelative } from '../lib/format'
 import { errorMessage } from '../lib/errors'
@@ -152,7 +152,19 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
             ? await api.updateResume(editingId, input)
             : await api.createResume(input)
       if (editingId && extraFacts !== savedFacts) {
-        await api.updateResumeExtraFacts(editingId, extraFacts)
+        try {
+          await api.updateResumeExtraFacts(editingId, extraFacts)
+        } catch (e) {
+          // The resume was deleted somewhere else — another tab, another device —
+          // while this editor still had it open.
+          if (e instanceof ApiError && e.status === 404) {
+            await refresh()
+            throw new Error(
+              'This resume no longer exists — it was probably deleted in another tab. Open your resume from the list and paste this in again.',
+            )
+          }
+          throw e
+        }
       }
       setEditingId(result.id)
       setSaved({ label: input.label, content: input.content })
@@ -312,13 +324,12 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
                 {hasLayout && (
                   <Field
                     label="Extra facts about you"
-                    hint="True things that don't fit on the page — tools you've used, what a project involved, scale. Tailoring can draw on these; it never invents anything beyond them."
+                    hint="Everything true that doesn't fit on the page — every project, the tools, what you built, the scale. No length limit. Tailoring can draw on these; it never invents anything beyond them."
                   >
                     {(props) => (
                       <Textarea
                         {...props}
-                        rows={5}
-                        maxLength={4000}
+                        rows={12}
                         value={extraFacts}
                         onChange={(e) => setExtraFacts(e.target.value)}
                         placeholder="e.g. Used Docker to run Postgres locally for Career Connect. Wrote 60+ xUnit tests for it."
