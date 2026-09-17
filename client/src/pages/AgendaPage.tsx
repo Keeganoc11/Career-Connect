@@ -9,6 +9,7 @@ import type { TrackerIntentRequest } from '../lib/trackerIntent'
 import { ActivityFeed } from '../components/ActivityFeed'
 import { FollowUpModal } from '../components/FollowUpModal'
 import { PipelineReview } from '../components/PipelineReview'
+import { QuestionBankPanel } from '../components/QuestionBankPanel'
 import { usePlan } from '../lib/planContext'
 import {
   Badge,
@@ -24,6 +25,8 @@ import {
 interface Props {
   dataVersion: number
   onOpenJob: (applicationId: string) => void
+  /** One round's prep page — research, questions, debrief. */
+  onOpenInterview: (interviewId: string) => void
   /** Opens one of the tracker's dialogs over whichever page is showing. */
   onIntent: (request: TrackerIntentRequest) => void
   /** Something here changed an application, so every page should refetch. */
@@ -60,7 +63,13 @@ const NUDGE_ACTIONS: Record<
   ProbablyGhosted: { icon: Archive, label: 'Mark as ghosted' },
 }
 
-export function AgendaPage({ dataVersion, onOpenJob, onIntent, onDataChanged }: Props) {
+export function AgendaPage({
+  dataVersion,
+  onOpenJob,
+  onOpenInterview,
+  onIntent,
+  onDataChanged,
+}: Props) {
   const { isPro } = usePlan()
   const [agenda, setAgenda] = useState<Agenda | null>(null)
   const [loading, setLoading] = useState(true)
@@ -141,7 +150,13 @@ export function AgendaPage({ dataVersion, onOpenJob, onIntent, onDataChanged }: 
           <h2 className="mb-2 text-base font-semibold text-fg">Coming up</h2>
           <ul className="grid gap-3 sm:grid-cols-2">
             {agenda.upcomingInterviews.map((interview) => (
-              <InterviewCard key={interview.interviewId} interview={interview} onIntent={onIntent} />
+              <InterviewCard
+                key={interview.interviewId}
+                interview={interview}
+                isPro={isPro}
+                onIntent={onIntent}
+                onOpenInterview={onOpenInterview}
+              />
             ))}
           </ul>
         </section>
@@ -169,6 +184,10 @@ export function AgendaPage({ dataVersion, onOpenJob, onIntent, onDataChanged }: 
         </section>
       )}
 
+      {isPro && (
+        <QuestionBankPanel dataVersion={dataVersion} onOpenInterview={onOpenInterview} />
+      )}
+
       <ActivityFeed dataVersion={dataVersion} onDataChanged={onDataChanged} onOpenJob={onOpenJob} />
 
       {/* Reads every open application with a model call — Pro only. */}
@@ -192,10 +211,14 @@ export function AgendaPage({ dataVersion, onOpenJob, onIntent, onDataChanged }: 
 
 function InterviewCard({
   interview,
+  isPro,
   onIntent,
+  onOpenInterview,
 }: {
   interview: UpcomingInterview
+  isPro: boolean
   onIntent: (request: TrackerIntentRequest) => void
+  onOpenInterview: (interviewId: string) => void
 }) {
   const soon = new Date(interview.scheduledAtUtc).getTime() - Date.now() < SOON_MS
 
@@ -216,7 +239,7 @@ function InterviewCard({
               separate nudge, which duplicated the card. */}
           {soon && <Badge emphasis="interview">Soon</Badge>}
           {interview.onCalendar && <Badge>On Google Calendar</Badge>}
-          <Badge>{interview.hasPrep ? 'Prep ready' : 'No prep yet'}</Badge>
+          {isPro && <Badge>{interview.hasPrep ? 'Prep started' : 'No prep yet'}</Badge>}
         </div>
 
         {interview.notes && (
@@ -224,15 +247,15 @@ function InterviewCard({
         )}
 
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant={interview.hasPrep ? 'secondary' : 'primary'}
-            onClick={() =>
-              onIntent({ kind: 'interviewPrep', applicationId: interview.applicationId })
-            }
-          >
-            {interview.hasPrep ? 'View interview prep' : 'Prepare'}
-          </Button>
+          {isPro && (
+            <Button
+              size="sm"
+              variant={interview.hasPrep ? 'secondary' : 'primary'}
+              onClick={() => onOpenInterview(interview.interviewId)}
+            >
+              {interview.hasPrep ? 'Open prep' : 'Prepare'}
+            </Button>
+          )}
           <Button
             size="sm"
             onClick={() => onIntent({ kind: 'interviews', applicationId: interview.applicationId })}

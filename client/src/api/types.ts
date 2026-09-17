@@ -38,6 +38,100 @@ export interface InterviewInput {
   notes?: string
 }
 
+export const QUESTION_KINDS = [
+  'Behavioral',
+  'Technical',
+  'SystemDesign',
+  'Role',
+  'Company',
+  'Logistics',
+  'Other',
+] as const
+
+export type InterviewQuestionKind = (typeof QUESTION_KINDS)[number]
+
+/** TheyAsked carries your answer and a rating; YouAsk carries theirs and a tick. */
+export type InterviewQuestionSide = 'TheyAsked' | 'YouAsk'
+
+export const ANSWER_QUALITIES = ['Strong', 'Okay', 'Weak'] as const
+
+export type AnswerQuality = (typeof ANSWER_QUALITIES)[number]
+
+export interface TrackedQuestion {
+  id: string
+  side: InterviewQuestionSide
+  kind: InterviewQuestionKind
+  text: string
+  answer: string | null
+  quality: AnswerQuality | null
+  asked: boolean
+  /** Written by the model and not yet confirmed — kept out of the question bank. */
+  suggested: boolean
+  position: number
+}
+
+export interface QuestionInput {
+  text: string
+  kind: InterviewQuestionKind
+  answer?: string | null
+  quality?: AnswerQuality | null
+  asked?: boolean
+}
+
+export interface CoveredRequirement {
+  requirement: string
+  evidence: string
+}
+
+export interface ProbedGap {
+  requirement: string
+  whatHappened: string
+  fix: string
+}
+
+export interface InterviewDebrief {
+  score: number
+  verdict: string
+  covered: CoveredRequirement[]
+  gaps: ProbedGap[]
+  practice: string[]
+  nextRound: string[]
+  generatedAtUtc: string
+}
+
+export interface InterviewPrepTracker {
+  interviewId: string
+  applicationId: string
+  companyName: string
+  roleTitle: string
+  scheduledAtUtc: string
+  kind: InterviewKind
+  notes: string | null
+  researchNotes: string | null
+  reflection: string | null
+  selfRating: number | null
+  hasJobDescription: boolean
+  questions: TrackedQuestion[]
+  debrief: InterviewDebrief | null
+}
+
+export interface QuestionBankEntry {
+  text: string
+  kind: InterviewQuestionKind
+  timesAsked: number
+  weakAnswers: number
+  companies: string[]
+  lastAskedAtUtc: string
+  lastAnswer: string | null
+  lastInterviewId: string
+}
+
+export interface QuestionBank {
+  questions: QuestionBankEntry[]
+  /** Already inside questions — the ones that went badly or keep coming back unanswered. */
+  practice: QuestionBankEntry[]
+}
+
 export type NudgeKind =
   | 'ReadyToApply'
   | 'NeverPrepped'

@@ -12,18 +12,24 @@ import type {
   GmailScanResult,
   InterviewEvent,
   InterviewInput,
+  InterviewDebrief,
   InterviewKind,
   InterviewPrep,
+  InterviewPrepTracker,
+  InterviewQuestionSide,
   JobPostingExtraction,
   LoginResponse,
   MatchResult,
   MeResponse,
   PlanTier,
   PrepRun,
+  QuestionBank,
+  QuestionInput,
   Resume,
   ResumeInput,
   ResumeSummary,
   Summary,
+  TrackedQuestion,
 } from './types'
 
 const TOKEN_KEY = 'careerconnect.token'
@@ -405,6 +411,61 @@ export const api = {
 
   deleteInterview(interviewId: string) {
     return request<void>(`/api/interviews/${interviewId}`, { method: 'DELETE' })
+  },
+
+  // ---- Interview tracker ----
+
+  // Not getInterviewPrep: that one is the older per-application generator.
+  // This is the tracker for one scheduled round.
+  getInterviewTracker(interviewId: string) {
+    return request<InterviewPrepTracker>(`/api/interviews/${interviewId}/prep`)
+  },
+
+  saveInterviewResearch(interviewId: string, researchNotes: string) {
+    return request<InterviewPrepTracker>(`/api/interviews/${interviewId}/research`, {
+      method: 'PUT',
+      body: JSON.stringify({ researchNotes }),
+    })
+  },
+
+  saveInterviewReflection(interviewId: string, reflection: string, selfRating: number | null) {
+    return request<InterviewPrepTracker>(`/api/interviews/${interviewId}/reflection`, {
+      method: 'PUT',
+      body: JSON.stringify({ reflection, selfRating }),
+    })
+  },
+
+  addInterviewQuestion(interviewId: string, side: InterviewQuestionSide, input: QuestionInput) {
+    return request<TrackedQuestion>(`/api/interviews/${interviewId}/questions`, {
+      method: 'POST',
+      body: JSON.stringify({ side, ...input }),
+    })
+  },
+
+  /** A whole-question update: what isn't sent is cleared, not left alone. */
+  updateInterviewQuestion(questionId: string, input: QuestionInput) {
+    return request<TrackedQuestion>(`/api/interview-questions/${questionId}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    })
+  },
+
+  deleteInterviewQuestion(questionId: string) {
+    return request<void>(`/api/interview-questions/${questionId}`, { method: 'DELETE' })
+  },
+
+  suggestInterviewQuestions(interviewId: string) {
+    return request<TrackedQuestion[]>(`/api/interviews/${interviewId}/questions/suggest`, {
+      method: 'POST',
+    })
+  },
+
+  generateInterviewDebrief(interviewId: string) {
+    return request<InterviewDebrief>(`/api/interviews/${interviewId}/debrief`, { method: 'POST' })
+  },
+
+  getQuestionBank() {
+    return request<QuestionBank>('/api/interview-questions/bank')
   },
 
   /**

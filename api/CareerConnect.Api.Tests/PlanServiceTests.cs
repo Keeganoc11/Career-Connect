@@ -54,7 +54,9 @@ public sealed class PlanServiceTests : IDisposable
         var pro = await Service(("Billing:ProEmails", "comped@example.com"))
             .FilterProAsync([free, paid, comped, deleted]);
 
-        Assert.Equal([paid, comped], pro.Order().ToHashSet().Order());
+        // Compared as a set: these are Guids, and any order between them is
+        // as valid as the next.
+        Assert.Equal(new HashSet<Guid> { paid, comped }, pro);
         Assert.DoesNotContain(free, pro);
         Assert.DoesNotContain(deleted, pro);
     }

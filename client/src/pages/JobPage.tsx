@@ -46,6 +46,8 @@ interface Props {
   onBack: () => void
   /** Opens one of the tracker's dialogs — edit, interviews, cover letter — over this page. */
   onIntent: (request: TrackerIntentRequest) => void
+  /** One round's own page: research, questions, debrief. */
+  onOpenInterview: (interviewId: string) => void
   onDataChanged: () => void
 }
 
@@ -66,7 +68,14 @@ const FOLLOW_UP_STATUSES: ApplicationStatus[] = ['Applied', 'PhoneScreen', 'Inte
  * cover letter dialogs that used to be scattered behind a row's "…" menu: the
  * tailored resume and its reality check are the page, and the rest hangs off it.
  */
-export function JobPage({ applicationId, dataVersion, onBack, onIntent, onDataChanged }: Props) {
+export function JobPage({
+  applicationId,
+  dataVersion,
+  onBack,
+  onIntent,
+  onOpenInterview,
+  onDataChanged,
+}: Props) {
   const { isPro } = usePlan()
   const [application, setApplication] = useState<Application | null>(null)
   const [run, setRun] = useState<PrepRun | null>(null)
@@ -362,11 +371,21 @@ export function JobPage({ applicationId, dataVersion, onBack, onIntent, onDataCh
                 {[...application.interviews]
                   .sort((a, b) => a.scheduledAtUtc.localeCompare(b.scheduledAtUtc))
                   .map((interview) => (
-                    <li key={interview.id} className="flex flex-wrap justify-between gap-2 px-4 py-3 text-sm">
+                    <li
+                      key={interview.id}
+                      className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"
+                    >
                       <span className="text-fg">
                         {KIND_LABELS[interview.kind]} · {formatDateTime(interview.scheduledAtUtc)}
                       </span>
-                      <span className="text-fg-muted">{formatUntil(interview.scheduledAtUtc)}</span>
+                      <span className="flex items-center gap-3">
+                        <span className="text-fg-muted">{formatUntil(interview.scheduledAtUtc)}</span>
+                        {isPro && (
+                          <Button size="sm" onClick={() => onOpenInterview(interview.id)}>
+                            Prep
+                          </Button>
+                        )}
+                      </span>
                     </li>
                   ))}
               </ul>

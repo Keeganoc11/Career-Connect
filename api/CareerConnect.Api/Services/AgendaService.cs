@@ -50,6 +50,7 @@ public class AgendaService(AppDbContext db) : IAgendaService
         var applications = await db.Applications
             .AsNoTracking()
             .Include(a => a.Interviews)
+            .ThenInclude(i => i.Questions)
             .Where(a => a.UserId == userId && !Terminal.Contains(a.Status))
             .ToListAsync(cancellationToken);
 
@@ -79,7 +80,12 @@ public class AgendaService(AppDbContext db) : IAgendaService
                 Kind = x.Interview.Kind,
                 Notes = x.Interview.Notes,
                 OnCalendar = x.Interview.CalendarEventId is not null,
-                HasPrep = x.Application.InterviewPrepJson is not null,
+                // Prep now belongs to the round, not the application: notes,
+                // questions or a debrief on this interview, rather than a
+                // generated document that sat on the job.
+                HasPrep = x.Interview.Questions.Count > 0
+                       || !string.IsNullOrWhiteSpace(x.Interview.ResearchNotes)
+                       || x.Interview.Debrief is not null,
             })
             .ToList();
 

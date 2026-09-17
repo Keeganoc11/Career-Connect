@@ -150,16 +150,39 @@ public sealed class AgendaServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetAsync_ReportsPrepAsReady_WhenItHasBeenGeneratedForTheApplication()
+    public async Task GetAsync_ReportsPrepAsStarted_WhenTheRoundItselfHasNotes()
     {
+        // Prep belongs to the round now, not the application: research typed
+        // against this interview is what makes the card say prep has started.
         var application = SeedAged(ApplicationStatus.Interview, idleDays: 1);
-        application.InterviewPrepJson = """{"questions":[],"talkingPoints":[]}""";
+        var interview = _fixture.SeedInterview(application.Id, DateTime.UtcNow.AddHours(20));
+        interview.ResearchNotes = "They rewrote billing last quarter.";
         _fixture.Db.SaveChanges();
-        _fixture.SeedInterview(application.Id, DateTime.UtcNow.AddHours(20));
 
         var agenda = await _service.GetAsync(_userId);
 
         Assert.Empty(agenda.Nudges);
+        Assert.True(Assert.Single(agenda.UpcomingInterviews).HasPrep);
+    }
+
+    [Fact]
+    public async Task GetAsync_ReportsPrepAsStarted_WhenQuestionsAreLogged()
+    {
+        var application = SeedAged(ApplicationStatus.Interview, idleDays: 1);
+        var interview = _fixture.SeedInterview(application.Id, DateTime.UtcNow.AddHours(20));
+        _fixture.Db.InterviewQuestions.Add(new InterviewQuestionEntry
+        {
+            Id = Guid.NewGuid(),
+            InterviewEventId = interview.Id,
+            Side = InterviewQuestionSide.YouAsk,
+            Kind = InterviewQuestionKind.Company,
+            Text = "How big is the platform team?",
+            CreatedAtUtc = DateTime.UtcNow,
+        });
+        _fixture.Db.SaveChanges();
+
+        var agenda = await _service.GetAsync(_userId);
+
         Assert.True(Assert.Single(agenda.UpcomingInterviews).HasPrep);
     }
 

@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 
 export type Tab = 'tailor' | 'agenda' | 'tracker' | 'resumes'
 
-export type Route = { view: Tab } | { view: 'job'; applicationId: string }
+export type Route =
+  | { view: Tab }
+  | { view: 'job'; applicationId: string }
+  | { view: 'interview'; interviewId: string }
 
 const TAB_PATHS: Record<Tab, string> = {
   tailor: 'tailor',
@@ -12,7 +15,8 @@ const TAB_PATHS: Record<Tab, string> = {
 }
 
 /**
- * The app's address in the URL hash: "#/applications", "#/jobs/<id>".
+ * The app's address in the URL hash: "#/applications", "#/jobs/<id>",
+ * "#/interviews/<id>".
  *
  * A hash rather than a router: the API serves index.html for unknown paths,
  * but a hash needs no server cooperation at all, and there's one dynamic page.
@@ -25,14 +29,18 @@ export function parseRoute(hash: string): Route {
     return { view: 'job', applicationId: decodeURIComponent(second) }
   }
 
+  if (first === 'interviews' && second) {
+    return { view: 'interview', interviewId: decodeURIComponent(second) }
+  }
+
   const tab = (Object.keys(TAB_PATHS) as Tab[]).find((key) => TAB_PATHS[key] === first)
   return { view: tab ?? 'tailor' }
 }
 
 export function routeHash(route: Route): string {
-  return route.view === 'job'
-    ? `#/jobs/${encodeURIComponent(route.applicationId)}`
-    : `#/${TAB_PATHS[route.view]}`
+  if (route.view === 'job') return `#/jobs/${encodeURIComponent(route.applicationId)}`
+  if (route.view === 'interview') return `#/interviews/${encodeURIComponent(route.interviewId)}`
+  return `#/${TAB_PATHS[route.view]}`
 }
 
 /**

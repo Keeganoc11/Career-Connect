@@ -11,6 +11,7 @@ import { useGmailConnection } from '../lib/useGmailConnection'
 import { AppShell } from './AppShell'
 import { EmailUpdatesModal } from './EmailUpdatesModal'
 import { AgendaPage } from '../pages/AgendaPage'
+import { InterviewPage } from '../pages/InterviewPage'
 import { JobPage } from '../pages/JobPage'
 import { ResumesPage } from '../pages/ResumesPage'
 import { TailorPage } from '../pages/TailorPage'
@@ -41,10 +42,17 @@ export function Workspace({ onSignOut }: { onSignOut: () => void }) {
   const { isPro } = usePlan()
   const gmail = useGmailConnection(bumpData, isPro)
 
-  const tab: Tab = route.view === 'job' ? 'tracker' : route.view
+  // A job's page belongs to Applications; an interview belongs to the Agenda,
+  // which is where you go looking for what's coming up.
+  const tab: Tab =
+    route.view === 'job' ? 'tracker' : route.view === 'interview' ? 'agenda' : route.view
   const openTab = (next: Tab) => navigate({ view: next })
   const openJob = useCallback(
     (applicationId: string) => navigate({ view: 'job', applicationId }),
+    [navigate],
+  )
+  const openInterview = useCallback(
+    (interviewId: string) => navigate({ view: 'interview', interviewId }),
     [navigate],
   )
   // Dialogs open over whatever page is showing; their data lives in TrackerPage.
@@ -77,7 +85,7 @@ export function Workspace({ onSignOut }: { onSignOut: () => void }) {
   return (
     <AppShell
       view={tab}
-      ownsTitle={route.view !== 'job'}
+      ownsTitle={route.view !== 'job' && route.view !== 'interview'}
       onViewChange={openTab}
       gmail={gmail}
       onOpenEmailUpdates={() => setEmailUpdatesOpen(true)}
@@ -90,7 +98,16 @@ export function Workspace({ onSignOut }: { onSignOut: () => void }) {
           dataVersion={dataVersion}
           onBack={back}
           onIntent={openDialog}
+          onOpenInterview={openInterview}
           onDataChanged={bumpData}
+        />
+      )}
+      {route.view === 'interview' && (
+        <InterviewPage
+          key={route.interviewId}
+          interviewId={route.interviewId}
+          onBack={back}
+          onOpenJob={openJob}
         />
       )}
       <div hidden={route.view !== 'tailor'}>
@@ -116,6 +133,7 @@ export function Workspace({ onSignOut }: { onSignOut: () => void }) {
         <AgendaPage
           dataVersion={dataVersion}
           onOpenJob={openJob}
+          onOpenInterview={openInterview}
           onIntent={openDialog}
           onDataChanged={bumpData}
         />
