@@ -19,6 +19,9 @@ public sealed class FakeGmailOAuthService : IGmailOAuthService
 
     public int MarkCheckedCallCount { get; private set; }
 
+    /// <summary>Who was disconnected, in order — account deletion has to do this before the row goes.</summary>
+    public List<Guid> DisconnectedUserIds { get; } = [];
+
     public string BuildAuthorizationUrl(string redirectUri, string state) =>
         $"https://accounts.google.com/fake?redirect_uri={redirectUri}&state={state}";
 
@@ -34,6 +37,7 @@ public sealed class FakeGmailOAuthService : IGmailOAuthService
 
     public Task DisconnectAsync(Guid userId, CancellationToken cancellationToken = default)
     {
+        DisconnectedUserIds.Add(userId);
         Connection = null;
         return Task.CompletedTask;
     }

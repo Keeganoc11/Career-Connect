@@ -24,6 +24,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddScoped<IPlanService, PlanService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
+builder.Services.AddScoped<IAccountService, AccountService>();
 
 // Real sending needs a key; without one the sender writes the mail to the log
 // instead, so local development and the tests need no provider and no network.

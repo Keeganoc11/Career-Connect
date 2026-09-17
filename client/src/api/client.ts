@@ -224,6 +224,19 @@ export const api = {
     })
   },
 
+  /** Downloads everything in the account as one JSON file. */
+  exportAccount() {
+    return downloadFile('/api/account/export', 'career-connect-export.json')
+  },
+
+  /** Permanent. The email is typed by the user as confirmation. */
+  deleteAccount(email: string) {
+    return request<void>('/api/account/delete', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    })
+  },
+
   requestPasswordReset(email: string) {
     return request<void>('/api/auth/forgot-password', {
       method: 'POST',

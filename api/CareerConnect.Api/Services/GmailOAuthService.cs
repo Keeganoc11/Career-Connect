@@ -172,8 +172,54 @@ public class GmailOAuthService : IGmailOAuthService
             return;
         }
 
+        // Tell Google first. Deleting only our copy leaves the grant listed as
+        // active in the user's Google account, which is not what "disconnect"
+        // means to the person clicking it. Best effort: if the revoke call
+        // fails we still remove our copy, since leaving a token we can't use
+        // is strictly worse.
+        await RevokeAtGoogleAsync(connection, cancellationToken);
+
         _db.GmailConnections.Remove(connection);
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Revokes the stored refresh token at Google, which also invalidates every
+    /// access token derived from it. Never throws.
+    /// </summary>
+    private async Task RevokeAtGoogleAsync(GmailConnection connection, CancellationToken cancellationToken)
+    {
+        string refreshToken;
+        try
+        {
+            refreshToken = _protector.Unprotect(connection.EncryptedRefreshToken);
+        }
+        catch (Exception ex)
+        {
+            // The key ring changed — the token is already unusable by us, and
+            // there's nothing to send Google.
+            _logger.LogWarning(ex, "Could not decrypt the stored refresh token to revoke it.");
+            return;
+        }
+
+        try
+        {
+            using var client = new HttpClient();
+            var response = await client.PostAsync(
+                "https://oauth2.googleapis.com/revoke",
+                new FormUrlEncodedContent([new KeyValuePair<string, string>("token", refreshToken)]),
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "Revoking Google access returned {Status}.", (int)response.StatusCode);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Revoking Google access failed.");
+        }
     }
 
     public async Task MarkCheckedAsync(Guid userId, CancellationToken cancellationToken = default)

@@ -1,11 +1,14 @@
 import { useRef, useState } from 'react'
-import { LogOut } from 'lucide-react'
-import { auth } from '../api/client'
+import { Download, LogOut, Trash2 } from 'lucide-react'
+import { api, auth } from '../api/client'
+import { errorMessage } from '../lib/errors'
+import { useAsyncAction } from '../lib/useAsyncAction'
+import { DeleteAccountDialog } from './DeleteAccountDialog'
 import { formatRelative } from '../lib/format'
 import { usePlan } from '../lib/planContext'
 import { PRO_AVAILABILITY } from '../lib/tiers'
 import type { GmailConnection } from '../lib/useGmailConnection'
-import { Button, ConfirmDialog, Popover } from './ui'
+import { Banner, Button, ConfirmDialog, Popover, toast } from './ui'
 
 interface Props {
   gmail: GmailConnection
@@ -36,6 +39,9 @@ export function AccountMenu({ gmail, onSignOut }: Props) {
   const buttonRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const exporting = useAsyncAction()
 
   const { status } = gmail
   // Three states, not two. Until the first status call resolves we don't know,
@@ -158,6 +164,36 @@ export function AccountMenu({ gmail, onSignOut }: Props) {
 
           <div className="my-1 border-t border-line" role="separator" />
 
+          <div className="w-72 px-3 py-2">
+            <p className="text-sm font-medium text-fg">Your data</p>
+            <p className="mt-0.5 text-xs text-fg-muted">
+              Everything in this account, as one file.
+            </p>
+            <div className="mt-2">
+              <Button
+                size="sm"
+                icon={<Download className="size-4" aria-hidden />}
+                loading={exporting.busy}
+                onClick={() =>
+                  void exporting.run(async () => {
+                    setExportError(null)
+                    try {
+                      await api.exportAccount()
+                      toast.success('Your data is downloading.')
+                    } catch (e) {
+                      setExportError(errorMessage(e))
+                    }
+                  })
+                }
+              >
+                Download my data
+              </Button>
+            </div>
+            {exportError && <Banner>{exportError}</Banner>}
+          </div>
+
+          <div className="my-1 border-t border-line" role="separator" />
+
           <button
             type="button"
             onClick={() => {
@@ -169,7 +205,32 @@ export function AccountMenu({ gmail, onSignOut }: Props) {
             <LogOut className="size-4" aria-hidden />
             Sign out
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              setDeleting(true)
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-danger transition-colors hover:bg-surface-muted"
+          >
+            <Trash2 className="size-4" aria-hidden />
+            Delete account…
+          </button>
         </Popover>
+      )}
+
+      {deleting && (
+        <DeleteAccountDialog
+          onClose={() => setDeleting(false)}
+          onDeleted={() => {
+            setDeleting(false)
+            // The account no longer exists, so there's nothing to sign out of
+            // — this just clears the local session and returns to the front.
+            onSignOut()
+            toast.info('Your account has been deleted.')
+          }}
+        />
       )}
 
       {confirmingDisconnect && (
