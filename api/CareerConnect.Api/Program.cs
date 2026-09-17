@@ -61,6 +61,9 @@ builder.Services.AddScoped<IApplicationPrepRunner, ApplicationPrepRunner>();
 builder.Services.AddHostedService<PrepRunBackgroundService>();
 
 builder.Services.AddScoped<IInterviewService, InterviewService>();
+builder.Services.AddSingleton<IInterviewQuestionSuggester, ClaudeInterviewQuestionSuggester>();
+builder.Services.AddSingleton<IInterviewDebriefWriter, ClaudeInterviewDebriefWriter>();
+builder.Services.AddScoped<IInterviewTrackerService, InterviewTrackerService>();
 builder.Services.AddScoped<IInterviewCalendarSync, GoogleInterviewCalendarSync>();
 builder.Services.AddScoped<IAgendaService, AgendaService>();
 builder.Services.AddScoped<IApplicationAutomation, ApplicationAutomation>();

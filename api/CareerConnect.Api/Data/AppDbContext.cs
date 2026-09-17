@@ -13,6 +13,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<GmailConnection> GmailConnections => Set<GmailConnection>();
     public DbSet<PrepRun> PrepRuns => Set<PrepRun>();
     public DbSet<InterviewEvent> InterviewEvents => Set<InterviewEvent>();
+    public DbSet<InterviewQuestionEntry> InterviewQuestions => Set<InterviewQuestionEntry>();
     public DbSet<ActivityEvent> ActivityEvents => Set<ActivityEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -116,6 +117,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             interview.Property(i => i.Kind).HasConversion<string>().HasMaxLength(50);
             interview.Property(i => i.Source).HasConversion<string>().HasMaxLength(50);
             interview.Property(i => i.CalendarEventId).HasMaxLength(1024);
+            interview.Property(i => i.Debrief).HasJsonConversion();
 
             interview.HasOne(i => i.Application)
                      .WithMany(a => a.Interviews)
@@ -124,6 +126,24 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
             // Every read is "what's coming up", so the schedule is the index.
             interview.HasIndex(i => new { i.ApplicationId, i.ScheduledAtUtc });
+        });
+
+        modelBuilder.Entity<InterviewQuestionEntry>(question =>
+        {
+            question.Property(q => q.Side).HasConversion<string>().HasMaxLength(50);
+            question.Property(q => q.Kind).HasConversion<string>().HasMaxLength(50);
+            question.Property(q => q.Quality).HasConversion<string>().HasMaxLength(50);
+            question.Property(q => q.Text).HasMaxLength(1000);
+            question.Property(q => q.Answer).HasMaxLength(8000);
+
+            question.HasOne(q => q.Interview)
+                    .WithMany(i => i.Questions)
+                    .HasForeignKey(q => q.InterviewEventId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+            // Read as two ordered lists per interview, and swept across every
+            // interview for the question bank.
+            question.HasIndex(q => new { q.InterviewEventId, q.Side, q.Position });
         });
 
         modelBuilder.Entity<ActivityEvent>(activity =>
