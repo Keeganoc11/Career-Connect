@@ -23,15 +23,15 @@ public interface IResumeEditGuard
         TailorContext context,
         CancellationToken cancellationToken = default);
 
-    IReadOnlyDictionary<string, int> CharacterBudgets(ResumeLayout baseLayout);
+    IReadOnlyDictionary<string, CharacterRange> CharacterBudgets(ResumeLayout baseLayout);
 }
 
 public partial class ResumeEditGuard(IResumeRenderer renderer, IResumeLayoutTailorer tailorer) : IResumeEditGuard
 {
-    /// <summary>Rounds of "that's too long, shorten it" before giving up on a line.</summary>
-    private const int ShortenAttempts = 2;
+    /// <summary>Rounds of "that doesn't fit its space, adjust it" before giving up on a line.</summary>
+    private const int FitAttempts = 2;
 
-    public IReadOnlyDictionary<string, int> CharacterBudgets(ResumeLayout baseLayout) =>
+    public IReadOnlyDictionary<string, CharacterRange> CharacterBudgets(ResumeLayout baseLayout) =>
         baseLayout.Lines
             .Where(l => l.Editable)
             .ToDictionary(l => l.Id, l => renderer.CharacterBudget(baseLayout, l));
@@ -71,46 +71,50 @@ public partial class ResumeEditGuard(IResumeRenderer renderer, IResumeLayoutTail
             applied[edit.LineId] = new AppliedEdit(edit.LineId, text, edit.Reason.Trim());
         }
 
-        // Anything that runs past the margin gets sent back to be cut down.
-        // What still doesn't fit keeps the words it had — never a second line.
+        // A rewrite must fill exactly the rows its paragraph had: past the
+        // margin or onto an extra row and the page changes shape, one row short
+        // and it leaves a hole. Misfits go back to be adjusted; what still
+        // doesn't fit keeps the words it had.
         var budgets = CharacterBudgets(baseLayout);
-        for (var attempt = 0; attempt <= ShortenAttempts; attempt++)
+        for (var attempt = 0; attempt <= FitAttempts; attempt++)
         {
-            var overflowing = applied.Keys
-                .Select(id => (Id: id, Fits: Fits(layout, id)))
-                .Where(x => !x.Fits)
-                .Select(x => x.Id)
+            var misfits = applied.Keys
+                .Select(id => (Id: id, Measurement: Measure(layout, id)))
+                .Where(x => x.Measurement is null || !x.Measurement.Fits || x.Measurement.LeavesGap)
                 .ToList();
 
-            if (overflowing.Count == 0)
+            if (misfits.Count == 0)
             {
                 break;
             }
 
-            if (attempt == ShortenAttempts)
+            if (attempt == FitAttempts)
             {
-                foreach (var id in overflowing)
+                foreach (var (id, measurement) in misfits)
                 {
+                    var rows = current.Find(id)!.RowCount;
                     layout = layout.WithLine(current.Find(id)!);
-                    rejected.Add(new RejectedEdit(id, applied[id].Text, "Didn't fit on one line."));
+                    rejected.Add(new RejectedEdit(id, applied[id].Text, measurement is { LeavesGap: true }
+                        ? $"Too short to fill its {rows} lines."
+                        : rows == 1 ? "Didn't fit on one line." : $"Didn't fit in its {rows} lines."));
                     applied.Remove(id);
                 }
                 break;
             }
 
-            var shortened = await tailorer.ShortenAsync(
-                overflowing
-                    .Select(id => new LineToShorten(id, layout.Find(id)!.EditableText!, ShortenTarget(budgets, id, attempt)))
+            var refitted = await tailorer.FitAsync(
+                misfits
+                    .Select(m => Target(m.Id, layout.Find(m.Id)!, budgets, attempt, tooShort: m.Measurement is { LeavesGap: true }))
                     .ToList(),
                 context,
                 cancellationToken);
 
-            foreach (var edit in shortened.Where(e => applied.ContainsKey(e.LineId)))
+            foreach (var edit in refitted.Where(e => applied.ContainsKey(e.LineId)))
             {
                 var text = Clean(edit.Text);
                 if (Check(current.Find(edit.LineId), text, allowedNumbers) is not null)
                 {
-                    continue; // Keep the long version; it's retried or reverted next round.
+                    continue; // Keep the previous version; it's retried or reverted next round.
                 }
 
                 layout = layout.WithLine(current.Find(edit.LineId)!.WithEditableText(text));
@@ -121,21 +125,31 @@ public partial class ResumeEditGuard(IResumeRenderer renderer, IResumeLayoutTail
         return new GuardedEdits(layout, applied.Values.ToList(), rejected);
     }
 
-    private bool Fits(ResumeLayout layout, string lineId)
+    private LineMeasurement? Measure(ResumeLayout layout, string lineId)
     {
         try
         {
-            return renderer.MeasureLine(layout, layout.Find(lineId)!).Fits;
+            return renderer.MeasureLine(layout, layout.Find(lineId)!);
         }
         catch (ResumeRenderException)
         {
-            return false;
+            return null;
         }
     }
 
-    /// <summary>Each retry asks for a little less than the estimate, since the estimate just proved optimistic.</summary>
-    private static int ShortenTarget(IReadOnlyDictionary<string, int> budgets, string id, int attempt) =>
-        Math.Max(20, budgets.GetValueOrDefault(id, 80) - 4 * (attempt + 1));
+    /// <summary>
+    /// The range to ask for. Each retry narrows it from the side that just
+    /// failed, since the estimate just proved optimistic in that direction.
+    /// </summary>
+    private static LineToFit Target(
+        string id, ResumeLine line, IReadOnlyDictionary<string, CharacterRange> budgets, int attempt, bool tooShort)
+    {
+        var range = budgets.GetValueOrDefault(id, new CharacterRange(1, 80));
+        var step = 4 * (attempt + 1);
+        var min = tooShort ? Math.Min(range.Min + step, range.Max - 1) : range.Min;
+        var max = tooShort ? range.Max : Math.Max(range.Max - step, Math.Max(min + 1, 20));
+        return new LineToFit(id, line.EditableText!, min, max, line.RowCount, tooShort);
+    }
 
     private static string? Check(ResumeLine? line, string text, HashSet<string> allowedNumbers)
     {

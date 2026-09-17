@@ -82,6 +82,24 @@ public class ResumeLayoutReader : IResumeLayoutReader
                 {
                     section = line.Text;
                 }
+
+                // A bullet or skill list that wrapped: fold the row into the
+                // paragraph above it, so its words are rewritten as one piece.
+                if (layoutLines.Count > 0 && IsContinuation(layoutLines[^1], line))
+                {
+                    var paragraph = layoutLines[^1];
+                    layoutLines[^1] = new ResumeLine
+                    {
+                        Id = paragraph.Id,
+                        Kind = paragraph.Kind,
+                        Baseline = paragraph.Baseline,
+                        Runs = paragraph.Runs,
+                        EditableFrom = paragraph.EditableFrom,
+                        Continuations = [.. paragraph.Continuations, new ResumeRow(line.Baseline, line.Runs)],
+                    };
+                    continue;
+                }
+
                 layoutLines.Add(line);
             }
 
@@ -106,6 +124,7 @@ public class ResumeLayoutReader : IResumeLayoutReader
                 RightLimit = page.Width - leftMargin,
                 Lines = layoutLines,
                 Links = links,
+                Rules = ReadRules(page),
             });
         }
     }
@@ -186,6 +205,35 @@ public class ResumeLayoutReader : IResumeLayoutReader
     }
 
     /// <summary>
+    /// Whether a row is the wrapped remainder of the paragraph above: plain
+    /// text directly below it, starting where that paragraph's words start —
+    /// a bullet's text indent, or a skill line's left edge — and never a new
+    /// bullet, heading, or bold label.
+    /// </summary>
+    private static bool IsContinuation(ResumeLine paragraph, ResumeLine row)
+    {
+        if (paragraph.Kind is not (ResumeLineKind.Bullet or ResumeLineKind.Skill)
+            || row.Kind != ResumeLineKind.Text
+            || row.Runs.Count == 0
+            || paragraph.Runs.Count < 2
+            || row.Runs[0].Bold)
+        {
+            return false;
+        }
+
+        var previousBaseline = paragraph.Continuations.Count > 0 ? paragraph.Continuations[^1].Baseline : paragraph.Baseline;
+        var gap = previousBaseline - row.Baseline;
+        var size = row.Runs[0].FontSize;
+        if (gap <= 0 || gap > size * 1.6)
+        {
+            return false;
+        }
+
+        var indent = paragraph.Kind == ResumeLineKind.Bullet ? paragraph.Runs[1].X : paragraph.Runs[0].X;
+        return Math.Abs(row.Runs[0].X - indent) <= 1.5;
+    }
+
+    /// <summary>
     /// Splits a line wherever the font changes. Whitespace never starts a run —
     /// it trails the run before it — so every run begins at a real character
     /// and replacing a run's words can't shift where they start.
@@ -206,7 +254,7 @@ public class ResumeLayoutReader : IResumeLayoutReader
             {
                 var (family, bold, italic) = StyleOf(runStart);
                 runs.Add(new ResumeRun(text.ToString(), family, bold, italic,
-                    Math.Round(runStart.PointSize, 2), Math.Round(runStart.StartBaseLine.X, 2)));
+                    Math.Round(runStart.PointSize, 2), Math.Round(runStart.StartBaseLine.X, 2), ColorOf(runStart)));
             }
             text.Clear();
             runStart = null;
@@ -227,6 +275,7 @@ public class ResumeLayoutReader : IResumeLayoutReader
             var newRun = runStart is null
                 || forceBreak
                 || StyleOf(letter) != StyleOf(runStart)
+                || ColorOf(letter) != ColorOf(runStart)
                 || Math.Abs(letter.PointSize - runStart.PointSize) > 0.1;
             forceBreak = false;
 
@@ -263,6 +312,79 @@ public class ResumeLayoutReader : IResumeLayoutReader
 
         return runs;
     }
+
+    /// <summary>
+    /// Visible straight lines: heading rules and link underlines. Word and
+    /// Google Docs exports also paint white rectangles behind every paragraph;
+    /// those are skipped, as is anything that isn't a thin straight line.
+    /// </summary>
+    private static List<ResumeRule> ReadRules(Page page)
+    {
+        var rules = new List<ResumeRule>();
+
+        foreach (var path in page.ExperimentalAccess.Paths)
+        {
+            if (path.IsStroked && ToColor(path.StrokeColor) is { } stroke && !IsWhite(stroke))
+            {
+                foreach (var subpath in path)
+                {
+                    UglyToad.PdfPig.Core.PdfPoint? previous = null;
+                    foreach (var command in subpath.Commands)
+                    {
+                        switch (command)
+                        {
+                            case UglyToad.PdfPig.Core.PdfSubpath.Move move:
+                                previous = move.Location;
+                                break;
+                            case UglyToad.PdfPig.Core.PdfSubpath.Line line when previous is { } from:
+                                if (Math.Abs(line.From.Y - line.To.Y) < 0.1 || Math.Abs(line.From.X - line.To.X) < 0.1)
+                                {
+                                    rules.Add(new ResumeRule(line.From.X, line.From.Y, line.To.X, line.To.Y,
+                                        Math.Max(path.LineWidth, 0.25), stroke));
+                                }
+                                previous = line.To;
+                                break;
+                            default:
+                                previous = null;
+                                break;
+                        }
+                    }
+                }
+            }
+
+            if (path.IsFilled && ToColor(path.FillColor) is { } fill && !IsWhite(fill))
+            {
+                // A rule drawn as a hairline-thin filled box rather than a stroke.
+                var box = path.GetBoundingRectangle();
+                if (box is { } rect && rect.Height <= 3 && rect.Width >= 10)
+                {
+                    var y = rect.Bottom + rect.Height / 2;
+                    rules.Add(new ResumeRule(rect.Left, y, rect.Right, y, Math.Max(rect.Height, 0.25), fill));
+                }
+            }
+        }
+
+        return rules;
+    }
+
+    private static ResumeColor? ColorOf(Letter letter)
+    {
+        var color = ToColor(letter.Color);
+        return color is null || color.IsBlack ? null : color;
+    }
+
+    private static ResumeColor? ToColor(UglyToad.PdfPig.Graphics.Colors.IColor? color)
+    {
+        if (color is null)
+        {
+            return null;
+        }
+
+        var (r, g, b) = color.ToRGBValues();
+        return new ResumeColor(Math.Round(r, 4), Math.Round(g, 4), Math.Round(b, 4));
+    }
+
+    private static bool IsWhite(ResumeColor color) => color.R > 0.98 && color.G > 0.98 && color.B > 0.98;
 
     private static bool LooksLikeLink(string text) =>
         !text.Contains(' ') && (text.Contains("://") || text.StartsWith("www.", StringComparison.OrdinalIgnoreCase));

@@ -26,6 +26,8 @@ public class ClaudeResumeMatchAnalyzer : IResumeMatchAnalyzer
           0-29    Not a realistic fit as written.
 
         Be specific and honest. An inflated score is useless to the candidate.
+        Everything you write is read by the candidate, so address them as
+        "you" — never by name, and never as "he", "she" or "the candidate".
         Keywords should be short phrases lifted from the posting's requirements
         ("ASP.NET Core", "CI/CD pipelines"), not full sentences.
 

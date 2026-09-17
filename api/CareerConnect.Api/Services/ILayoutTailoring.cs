@@ -8,8 +8,9 @@ public record TailorContext(string JobDescription, string RoleTitle, string Comp
 /// <summary>A proposed replacement for one line's editable words.</summary>
 public record LineEdit(string LineId, string Text, string Reason);
 
-/// <summary>A line whose rewrite ran past the margin, handed back to be cut down.</summary>
-public record LineToShorten(string LineId, string Text, int MaxCharacters);
+/// <summary>A rewrite that didn't fill its space exactly, handed back to be adjusted.</summary>
+/// <param name="TooShort">True when it left a row empty rather than running over.</param>
+public record LineToFit(string LineId, string Text, int MinCharacters, int MaxCharacters, int Rows, bool TooShort);
 
 /// <summary>A changed line that claims something the base resume and extra facts don't back up.</summary>
 public record UnsupportedClaim(string LineId, string Reason);
@@ -35,14 +36,14 @@ public interface IResumeLayoutTailorer
     Task<List<LineEdit>> TailorAsync(
         ResumeLayout current,
         ResumeLayout baseLayout,
-        IReadOnlyDictionary<string, int> characterBudgets,
+        IReadOnlyDictionary<string, CharacterRange> characterBudgets,
         MatchAnalysis latestScore,
         TailorContext context,
         string? instructions = null,
         CancellationToken cancellationToken = default);
 
-    Task<List<LineEdit>> ShortenAsync(
-        IReadOnlyList<LineToShorten> lines,
+    Task<List<LineEdit>> FitAsync(
+        IReadOnlyList<LineToFit> lines,
         TailorContext context,
         CancellationToken cancellationToken = default);
 }

@@ -14,7 +14,8 @@ public class ClaudeResumeReviewer(ClaudeStructuredCaller caller) : IResumeReview
         reality check on one application. They have explicitly asked for hard,
         honest feedback — including being told plainly when a job isn't a match
         and why. Do not soften, pad with encouragement, or hedge. Be specific
-        and useful; never cruel.
+        and useful; never cruel. Write to them directly as "you" — never by
+        name, and never as "he", "she" or "the candidate".
 
         You get the job posting, the candidate's resume after it was already
         tailored as far as honesty allows, and the match scores before and

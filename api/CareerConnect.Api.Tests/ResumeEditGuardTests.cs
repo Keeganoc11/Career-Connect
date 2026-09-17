@@ -91,11 +91,11 @@ public class ResumeEditGuardTests
     public async Task ApplyAsync_ShortensALineThatRunsPastTheMargin()
     {
         var tooLong = string.Join(' ', Enumerable.Repeat("Built ASP.NET Core APIs", 8));
-        _tailorer.Shorten = _ => "Built ASP.NET Core APIs";
+        _tailorer.Fit = _ => "Built ASP.NET Core APIs";
 
         var result = await Apply(new LineEdit(TestResumes.BulletLine, tooLong, "r"));
 
-        Assert.Equal(1, _tailorer.ShortenCallCount);
+        Assert.Equal(1, _tailorer.FitCallCount);
         Assert.Equal("Built ASP.NET Core APIs", result.Layout.Find(TestResumes.BulletLine)!.EditableText);
         Assert.Single(result.Applied);
     }
@@ -104,11 +104,11 @@ public class ResumeEditGuardTests
     public async Task ApplyAsync_KeepsTheOriginalWords_WhenALineStillWontFit()
     {
         var tooLong = string.Join(' ', Enumerable.Repeat("Built ASP.NET Core APIs", 8));
-        _tailorer.Shorten = l => l.Text; // never actually gets shorter
+        _tailorer.Fit = l => l.Text; // never actually gets shorter
 
         var result = await Apply(new LineEdit(TestResumes.BulletLine, tooLong, "r"));
 
-        Assert.Equal(2, _tailorer.ShortenCallCount);
+        Assert.Equal(2, _tailorer.FitCallCount);
         Assert.Empty(result.Applied);
         Assert.Contains("one line", Assert.Single(result.Rejected).Why);
         Assert.Equal(_base.Find(TestResumes.BulletLine)!.Text, result.Layout.Find(TestResumes.BulletLine)!.Text);

@@ -16,11 +16,11 @@ public sealed class FakeResumeLayoutTailorer : IResumeLayoutTailorer
     /// </summary>
     public Queue<List<LineEdit>> Proposals { get; } = new();
 
-    /// <summary>What ShortenAsync answers with; by default, text cut to the limit.</summary>
-    public Func<LineToShorten, string>? Shorten { get; set; }
+    /// <summary>What FitAsync answers with; by default, text cut to the maximum.</summary>
+    public Func<LineToFit, string>? Fit { get; set; }
 
     public int CallCount { get; private set; }
-    public int ShortenCallCount { get; private set; }
+    public int FitCallCount { get; private set; }
     public string? LastInstructions { get; private set; }
     public ResumeLayout? LastCurrent { get; private set; }
 
@@ -30,7 +30,7 @@ public sealed class FakeResumeLayoutTailorer : IResumeLayoutTailorer
     public Task<List<LineEdit>> TailorAsync(
         ResumeLayout current,
         ResumeLayout baseLayout,
-        IReadOnlyDictionary<string, int> characterBudgets,
+        IReadOnlyDictionary<string, CharacterRange> characterBudgets,
         MatchAnalysis latestScore,
         TailorContext context,
         string? instructions = null,
@@ -49,14 +49,14 @@ public sealed class FakeResumeLayoutTailorer : IResumeLayoutTailorer
             : [new LineEdit(TestResumes.BulletLine, PassPhrases[(CallCount - 1) % PassPhrases.Length], $"Reason {CallCount}")]);
     }
 
-    public Task<List<LineEdit>> ShortenAsync(
-        IReadOnlyList<LineToShorten> lines,
+    public Task<List<LineEdit>> FitAsync(
+        IReadOnlyList<LineToFit> lines,
         TailorContext context,
         CancellationToken cancellationToken = default)
     {
-        ShortenCallCount++;
+        FitCallCount++;
         return Task.FromResult(lines
-            .Select(l => new LineEdit(l.LineId, Shorten?.Invoke(l) ?? l.Text[..Math.Min(l.Text.Length, l.MaxCharacters)], ""))
+            .Select(l => new LineEdit(l.LineId, Fit?.Invoke(l) ?? l.Text[..Math.Min(l.Text.Length, l.MaxCharacters)], ""))
             .ToList());
     }
 }

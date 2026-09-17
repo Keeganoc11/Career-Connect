@@ -61,4 +61,55 @@ public static class TestResumes
             Links = [new ResumeLink(LinkUri, 108, lines[7].Baseline - 3, 150, 12.7)],
         };
     }
+
+    public const string WrappedBulletLine = "L06";
+
+    /// <summary>
+    /// A resume shaped like a Word export: a rule under the heading, a blue
+    /// link, and a bullet that wraps onto a second row at the text indent.
+    /// </summary>
+    public static ResumeLayout WrappedLayout()
+    {
+        static ResumeRun Serif(string text, double x, bool bold = false, ResumeColor? color = null) =>
+            new(text, ResumeFontFamily.Serif, bold, false, 11, x, color);
+
+        var blue = new ResumeColor(0.0667, 0.3333, 0.8);
+        ResumeLine Line(int n, ResumeLineKind kind, double y, List<ResumeRun> runs, int? editableFrom = null, List<ResumeRow>? continuations = null) => new()
+        {
+            Id = $"L{n:00}",
+            Kind = kind,
+            Baseline = y,
+            Runs = runs,
+            EditableFrom = editableFrom,
+            Continuations = continuations ?? [],
+        };
+
+        return new ResumeLayout
+        {
+            PageWidth = 612,
+            PageHeight = 792,
+            RightLimit = 540,
+            Lines =
+            [
+                Line(1, ResumeLineKind.Text, 700, [Serif("Jordan Rivera", 250, bold: true)]),
+                Line(2, ResumeLineKind.Text, 686, [Serif("jordan@example.com ", 200), Serif("github.com/jordan", 300, color: blue)]),
+                Line(3, ResumeLineKind.Heading, 660, [Serif("WORK EXPERIENCE", 72, bold: true)]),
+                Line(4, ResumeLineKind.Text, 647, [Serif("Platform Engineer ", 72, bold: true), Serif("Globex | Springfield", 190)]),
+                Line(5, ResumeLineKind.Text, 634, [Serif("Worked across the platform team for two years on internal tooling", 72)]),
+                Line(6, ResumeLineKind.Bullet, 621,
+                    [new ResumeRun("●  ", ResumeFontFamily.Sans, false, false, 11, 90), Serif("Supported production infrastructure through server provisioning, imaging, and hardware lifecycle", 108)],
+                    editableFrom: 1,
+                    continuations: [new ResumeRow(608, [Serif("management in a live data center environment", 108)])]),
+                Line(7, ResumeLineKind.Bullet, 595,
+                    [new ResumeRun("●  ", ResumeFontFamily.Sans, false, false, 11, 90), Serif("Tracked incidents in Jira with the engineering team", 108)],
+                    editableFrom: 1),
+            ],
+            Rules =
+            [
+                new ResumeRule(72, 658, 540, 658, 0.375, new ResumeColor(0, 0, 0)),
+                new ResumeRule(300, 684.5, 390, 684.5, 0.54, blue),
+                new ResumeRule(108, 606.5, 350, 606.5, 0.54, blue),
+            ],
+        };
+    }
 }

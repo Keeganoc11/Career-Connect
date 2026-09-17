@@ -15,7 +15,8 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
     private const string SystemPrompt = """
         You tailor a candidate's one-page resume to a specific job posting by
         changing words, and only words. The page layout is fixed: every line
-        stays where it is, and each line you edit must still fit on one line.
+        stays where it is, and each line you edit must fill exactly the space it
+        had — one printed row, or two or three for a bullet that wraps.
 
         You will see the resume as numbered lines. Some are marked editable:
         bullet points (you replace the text after the bullet) and skill lines
@@ -25,7 +26,8 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
 
         Hard rules for every edit:
         - Only edit lines marked editable, and replace that line's whole editable text.
-        - Stay within the line's character limit. It is a real limit: longer text doesn't fit on the page.
+        - Stay within the line's character range. It is a real limit: longer text runs off the page, and
+          shorter text on a multi-row bullet leaves an empty row.
         - Plain text only: no markdown, no line breaks, no leading bullet symbol, no [bracketed placeholders].
 
         Honesty rules — these matter more than the score:
@@ -49,12 +51,15 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
         which the posting lists first").
         """;
 
-    private const string ShortenPrompt = """
-        Each resume line below is too long to fit on one line of the page.
-        Shorten each one to at most its character limit. Keep its meaning and
-        the key terms that match the job posting; cut filler words first. Do
-        not add anything new, and never invent or change a number. Plain text
-        only, no bullet symbol. Return every line you were given.
+    private const string FitPrompt = """
+        Each resume line below doesn't fill its space on the page exactly. A
+        line marked TOO LONG runs past its rows: tighten it, cutting filler
+        words first. A line marked TOO SHORT leaves one of its rows empty:
+        expand it by making the same facts more specific in the posting's
+        language. Land every line inside its character range. Keep its
+        meaning and the key terms that match the job posting. Never add a new
+        claim, tool, or number. Plain text only, no bullet symbol. Return
+        every line you were given.
         """;
 
     public bool IsConfigured => caller.IsConfigured;
@@ -62,7 +67,7 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
     public async Task<List<LineEdit>> TailorAsync(
         ResumeLayout current,
         ResumeLayout baseLayout,
-        IReadOnlyDictionary<string, int> characterBudgets,
+        IReadOnlyDictionary<string, CharacterRange> characterBudgets,
         MatchAnalysis latestScore,
         TailorContext context,
         string? instructions = null,
@@ -77,10 +82,13 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
                 continue;
             }
 
-            var budget = characterBudgets.GetValueOrDefault(line.Id);
+            var budget = characterBudgets.GetValueOrDefault(line.Id, new CharacterRange(1, 80));
+            var size = line.RowCount == 1
+                ? $"max {budget.Max} chars"
+                : $"wraps onto {line.RowCount} rows: {budget.Min}-{budget.Max} chars";
             var label = line.Kind == ResumeLineKind.Skill
-                ? $"[editable skill line, fixed label \"{string.Concat(line.Runs.Take(line.EditableFrom!.Value).Select(r => r.Text)).Trim()}\", max {budget} chars]"
-                : $"[editable bullet, max {budget} chars]";
+                ? $"[editable skill line, fixed label \"{line.Prefix.Trim()}\", {size}]"
+                : $"[editable bullet, {size}]";
             resume.AppendLine($"{line.Id} {label} {line.EditableText}");
 
             var original = baseLayout.Find(line.Id)?.EditableText;
@@ -128,7 +136,7 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
             edits = SchemaArray(SchemaObject(new
             {
                 line_id = SchemaString("Id of an editable line, e.g. \"L15\"."),
-                text = SchemaString("The complete new editable text for that line, within its character limit."),
+                text = SchemaString("The complete new editable text for that line, within its character range."),
                 reason = SchemaString("One sentence, addressed to the candidate, on why this change helps."),
             }, "line_id", "text", "reason"), "Replacements for the lines worth changing. Omit lines to leave them as they are."),
         }, "edits");
@@ -139,8 +147,8 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
         return payload.Edits.Select(e => new LineEdit(e.LineId, e.Text, e.Reason)).ToList();
     }
 
-    public async Task<List<LineEdit>> ShortenAsync(
-        IReadOnlyList<LineToShorten> lines,
+    public async Task<List<LineEdit>> FitAsync(
+        IReadOnlyList<LineToFit> lines,
         TailorContext context,
         CancellationToken cancellationToken = default)
     {
@@ -153,7 +161,7 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
             Role: {context.RoleTitle} at {context.CompanyName}
 
             <lines>
-            {string.Join("\n", lines.Select(l => $"{l.LineId} [max {l.MaxCharacters} chars, currently {l.Text.Length}] {l.Text}"))}
+            {string.Join("\n", lines.Select(l => $"{l.LineId} [{(l.TooShort ? "TOO SHORT" : "TOO LONG")}, {l.Rows} row(s), {l.MinCharacters}-{l.MaxCharacters} chars, currently {l.Text.Length}] {l.Text}"))}
             </lines>
             """;
 
@@ -161,14 +169,14 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
         {
             edits = SchemaArray(SchemaObject(new
             {
-                line_id = SchemaString("Id of the line being shortened."),
-                text = SchemaString("The shortened text, within the limit."),
+                line_id = SchemaString("Id of the line being adjusted."),
+                text = SchemaString("The adjusted text, within its character range."),
                 reason = SchemaString("Leave empty."),
             }, "line_id", "text", "reason"), "One entry per line given."),
         }, "edits");
 
         var payload = await caller.CallAsync<EditsPayload>(
-            "fitting a rewritten line on one line", ShortenPrompt, userPrompt, schema, cancellationToken);
+            "fitting a rewritten line into its space", FitPrompt, userPrompt, schema, cancellationToken);
 
         return payload.Edits.Select(e => new LineEdit(e.LineId, e.Text, e.Reason)).ToList();
     }

@@ -23,12 +23,35 @@ public enum ResumeLineKind
     Text,
 }
 
+/// <summary>An RGB color, each channel 0–1 as PDFs store it.</summary>
+public record ResumeColor(double R, double G, double B)
+{
+    public bool IsBlack => R < 0.02 && G < 0.02 && B < 0.02;
+}
+
 /// <summary>A stretch of one line drawn in one font, starting at the x it had in the uploaded PDF.</summary>
-public record ResumeRun(string Text, ResumeFontFamily Family, bool Bold, bool Italic, double FontSize, double X);
+/// <param name="Color">Null for black, the overwhelmingly common case. Links are often blue.</param>
+public record ResumeRun(
+    string Text, ResumeFontFamily Family, bool Bold, bool Italic, double FontSize, double X, ResumeColor? Color = null);
+
+/// <summary>
+/// A straight line drawn on the page — a rule under a section heading, the
+/// underline beneath a link. Part of the format, so it's redrawn exactly.
+/// </summary>
+public record ResumeRule(double X1, double Y1, double X2, double Y2, double Width, ResumeColor Color);
 
 /// <summary>A clickable area carried over from the uploaded PDF, in page coordinates.</summary>
 public record ResumeLink(string Uri, double X, double Y, double Width, double Height);
 
+/// <summary>One further printed row of a paragraph that wraps, as it sat in the uploaded PDF.</summary>
+public record ResumeRow(double Baseline, List<ResumeRun> Runs);
+
+/// <summary>
+/// One paragraph of the resume — usually one printed row, sometimes several
+/// when a bullet or skill list wraps. However many rows it had in the upload,
+/// it keeps exactly that many: a rewrite fills the same rows, so nothing below
+/// it moves and the page can't grow.
+/// </summary>
 public class ResumeLine
 {
     /// <summary>Stable within one layout ("L07"), so a model can refer to a line and nothing else.</summary>
@@ -36,10 +59,21 @@ public class ResumeLine
 
     public required ResumeLineKind Kind { get; init; }
 
-    /// <summary>Baseline y from the uploaded PDF. Never recomputed — this is what keeps the spacing identical.</summary>
+    /// <summary>Baseline y of the first row, from the uploaded PDF. Never recomputed — this is what keeps the spacing identical.</summary>
     public required double Baseline { get; init; }
 
+    /// <summary>The first row's runs.</summary>
     public required List<ResumeRun> Runs { get; init; }
+
+    /// <summary>Rows after the first, for a paragraph that wraps. Empty for the common one-row line.</summary>
+    public List<ResumeRow> Continuations { get; init; } = [];
+
+    /// <summary>
+    /// Set once tailoring has replaced this line's words. A link underline
+    /// drawn beneath the original words no longer lines up, so the renderer
+    /// leaves out any underline under an edited line's words.
+    /// </summary>
+    public bool Edited { get; init; }
 
     /// <summary>
     /// Runs from this index on are the words tailoring may replace; everything
@@ -48,17 +82,35 @@ public class ResumeLine
     /// </summary>
     public int? EditableFrom { get; init; }
 
+    /// <summary>
+    /// New words for a wrapped paragraph. They can't be stored as runs, because
+    /// where they break across rows depends on measuring them — the renderer
+    /// wraps them into the original rows when it draws. Null until tailored.
+    /// </summary>
+    public string? Replacement { get; init; }
+
     [JsonIgnore]
     public bool Editable => EditableFrom is not null;
 
     [JsonIgnore]
-    public string Text => string.Concat(Runs.Select(r => r.Text)).TrimEnd();
+    public int RowCount => 1 + Continuations.Count;
 
-    /// <summary>The replaceable words alone, or null for a locked line.</summary>
+    [JsonIgnore]
+    public string Text => Replacement is not null
+        ? $"{Prefix}{Replacement}".TrimEnd()
+        : string.Join(' ', AllRows().Select(RowText).Where(t => t.Length > 0));
+
+    /// <summary>The replaceable words alone, across every row, or null for a locked line.</summary>
     [JsonIgnore]
     public string? EditableText => EditableFrom is { } from
-        ? string.Concat(Runs.Skip(from).Select(r => r.Text)).Trim()
+        ? Replacement ?? string.Join(' ', new[] { string.Concat(Runs.Skip(from).Select(r => r.Text)).Trim() }
+            .Concat(Continuations.Select(c => RowText(c.Runs)))
+            .Where(t => t.Length > 0))
         : null;
+
+    /// <summary>The fixed part before the editable words — a bullet glyph, a "Backend: " label.</summary>
+    [JsonIgnore]
+    public string Prefix => EditableFrom is { } from ? string.Concat(Runs.Take(from).Select(r => r.Text)) : "";
 
     /// <summary>
     /// The same line with its editable words swapped. The new words take the
@@ -72,6 +124,21 @@ public class ResumeLine
             throw new InvalidOperationException($"Line {Id} is locked.");
         }
 
+        if (Continuations.Count > 0)
+        {
+            return new ResumeLine
+            {
+                Id = Id,
+                Kind = Kind,
+                Baseline = Baseline,
+                EditableFrom = from,
+                Runs = Runs,
+                Continuations = Continuations,
+                Replacement = text,
+                Edited = true,
+            };
+        }
+
         var first = Runs[from];
         return new ResumeLine
         {
@@ -80,8 +147,13 @@ public class ResumeLine
             Baseline = Baseline,
             EditableFrom = from,
             Runs = [.. Runs.Take(from), first with { Text = text }],
+            Edited = true,
         };
     }
+
+    private IEnumerable<List<ResumeRun>> AllRows() => new[] { Runs }.Concat(Continuations.Select(c => c.Runs));
+
+    private static string RowText(List<ResumeRun> runs) => string.Concat(runs.Select(r => r.Text)).Trim();
 }
 
 /// <summary>
@@ -104,6 +176,8 @@ public class ResumeLayout
 
     public List<ResumeLink> Links { get; init; } = [];
 
+    public List<ResumeRule> Rules { get; init; } = [];
+
     public ResumeLine? Find(string id) => Lines.FirstOrDefault(l => l.Id == id);
 
     public ResumeLayout WithLine(ResumeLine replacement) => new()
@@ -112,6 +186,7 @@ public class ResumeLayout
         PageHeight = PageHeight,
         RightLimit = RightLimit,
         Links = Links,
+        Rules = Rules,
         Lines = Lines.Select(l => l.Id == replacement.Id ? replacement : l).ToList(),
     };
 

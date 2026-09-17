@@ -4,10 +4,16 @@ using UglyToad.PdfPig.Writer;
 
 namespace CareerConnect.Api.Services;
 
-/// <summary>How far one line reaches, measured with the fonts it will actually be drawn in.</summary>
-public record LineMeasurement(string LineId, double EndX, double Limit)
+/// <summary>
+/// How far one paragraph reaches and how many rows its words need, measured
+/// with the fonts it will actually be drawn in.
+/// </summary>
+public record LineMeasurement(string LineId, double EndX, double Limit, int RowsNeeded = 1, int RowsAvailable = 1)
 {
-    public bool Fits => EndX <= Limit + FitTolerance;
+    public bool Fits => EndX <= Limit + FitTolerance && RowsNeeded <= RowsAvailable;
+
+    /// <summary>Fits, but leaves one of its rows empty — a visible hole in a paragraph that used to fill it.</summary>
+    public bool LeavesGap => RowsNeeded < RowsAvailable;
 
     public double Overflow => Math.Max(0, EndX - Limit);
 
@@ -27,12 +33,15 @@ public interface IResumeRenderer
     LineMeasurement MeasureLine(ResumeLayout layout, ResumeLine line);
 
     /// <summary>
-    /// Roughly how many characters of this line's typical text fit before the
-    /// margin — a budget to hand a model, which can't measure points itself.
-    /// The real check is always <see cref="MeasureEditableLines"/>.
+    /// Roughly how many characters fill this paragraph's rows — a budget to hand
+    /// a model, which can't measure points itself. A one-row line only has a
+    /// maximum; a wrapped one also has a minimum, below which a row sits empty.
+    /// The real check is always <see cref="MeasureLine"/>.
     /// </summary>
-    int CharacterBudget(ResumeLayout layout, ResumeLine line);
+    CharacterRange CharacterBudget(ResumeLayout layout, ResumeLine line);
 }
+
+public record CharacterRange(int Min, int Max);
 
 /// <summary>Thrown when a line uses a character the embedded fonts can't draw.</summary>
 public class ResumeRenderException(string message, Exception? inner = null) : Exception(message, inner);
@@ -56,11 +65,12 @@ public class ResumeRenderer : IResumeRenderer
 
         foreach (var line in layout.Lines)
         {
-            var runs = session.Place(line);
-            for (var i = 0; i < runs.Count; i++)
-            {
-                session.Draw(runs[i], line.Baseline, isLastOnLine: i == runs.Count - 1);
-            }
+            session.DrawLine(line, layout.RightLimit);
+        }
+
+        foreach (var rule in layout.Rules.Where(rule => !UnderEditedWords(layout, rule)))
+        {
+            session.DrawRule(rule);
         }
 
         foreach (var link in layout.Links)
@@ -71,40 +81,69 @@ public class ResumeRenderer : IResumeRenderer
         return session.Builder.Build();
     }
 
+    /// <summary>
+    /// A thin horizontal line just below an edited line's words is an
+    /// underline for words that are gone. Heading rules sit under locked
+    /// headings, so they're never affected.
+    /// </summary>
+    private static bool UnderEditedWords(ResumeLayout layout, ResumeRule rule)
+    {
+        if (Math.Abs(rule.Y1 - rule.Y2) > 0.1)
+        {
+            return false;
+        }
+
+        return layout.Lines
+            .Where(l => l.Edited && l.EditableFrom is not null)
+            .Any(l => new[] { (l.Baseline, X: l.Runs[l.EditableFrom!.Value].X) }
+                .Concat(l.Continuations.Select(c => (c.Baseline, X: c.Runs.FirstOrDefault()?.X ?? 0)))
+                .Any(row => rule.Y1 <= row.Baseline + 0.5 && rule.Y1 >= row.Baseline - 4 && Math.Max(rule.X1, rule.X2) > row.X));
+    }
+
     public IReadOnlyList<LineMeasurement> MeasureEditableLines(ResumeLayout layout)
     {
         using var session = new Session(layout.PageWidth, layout.PageHeight);
 
         return layout.Lines
             .Where(l => l.Editable)
-            .Select(l => new LineMeasurement(l.Id, session.EndOf(l), layout.RightLimit))
+            .Select(l => session.Measure(l, layout.RightLimit))
             .ToList();
     }
 
     public LineMeasurement MeasureLine(ResumeLayout layout, ResumeLine line)
     {
         using var session = new Session(layout.PageWidth, layout.PageHeight);
-        return new LineMeasurement(line.Id, session.EndOf(line), layout.RightLimit);
+        return session.Measure(line, layout.RightLimit);
     }
 
-    public int CharacterBudget(ResumeLayout layout, ResumeLine line)
+    public CharacterRange CharacterBudget(ResumeLayout layout, ResumeLine line)
     {
         if (line.EditableFrom is not { } from || line.EditableText is not { Length: > 0 } text)
         {
-            return 0;
+            return new CharacterRange(0, 0);
         }
 
         using var session = new Session(layout.PageWidth, layout.PageHeight);
 
-        var run = line.Runs[from];
-        var width = session.EndOf(run with { Text = text }) - run.X;
+        var style = session.Place(line.Runs)[from];
+        var width = session.EndOf(style with { Text = text, X = 0 });
         if (width <= 0)
         {
-            return text.Length;
+            return new CharacterRange(1, text.Length);
         }
 
         var perCharacter = width / text.Length;
-        return (int)Math.Floor((layout.RightLimit - run.X) / perCharacter);
+        var rowWidths = Enumerable.Range(0, line.RowCount)
+            .Select(row => layout.RightLimit - Session.RowStart(line, style, row))
+            .ToList();
+
+        // Word wrap never uses a row's full width, so the estimate is trimmed
+        // a little per break; the real check measures anyway.
+        var max = (int)Math.Floor(rowWidths.Sum() / perCharacter) - 3 * (line.RowCount - 1);
+        var min = line.RowCount == 1
+            ? 1
+            : (int)Math.Floor((rowWidths.Sum() - rowWidths[^1]) / perCharacter) + 8;
+        return new CharacterRange(Math.Min(min, max), max);
     }
 
     /// <summary>
@@ -136,7 +175,16 @@ public class ResumeRenderer : IResumeRenderer
 
             try
             {
-                Page.AddText(text, run.FontSize, new PdfPoint(run.X, baseline), Font(run));
+                if (run.Color is { IsBlack: false } color)
+                {
+                    Page.SetTextAndFillColor(Channel(color.R), Channel(color.G), Channel(color.B));
+                    Page.AddText(text, run.FontSize, new PdfPoint(run.X, baseline), Font(run));
+                    Page.ResetColor();
+                }
+                else
+                {
+                    Page.AddText(text, run.FontSize, new PdfPoint(run.X, baseline), Font(run));
+                }
             }
             catch (Exception ex) when (ex is not ResumeRenderException)
             {
@@ -144,10 +192,103 @@ public class ResumeRenderer : IResumeRenderer
             }
         }
 
-        public double EndOf(ResumeLine line)
+        private const double FitTolerance = 0.25;
+
+        public void DrawLine(ResumeLine line, double limit)
         {
-            var runs = Place(line);
-            return runs.Count == 0 ? 0 : EndOf(runs[^1]);
+            var placed = Place(line.Runs);
+
+            if (line.Replacement is null || line.EditableFrom is not { } from)
+            {
+                DrawRow(placed, line.Baseline);
+                foreach (var row in line.Continuations)
+                {
+                    DrawRow(Place(row.Runs), row.Baseline);
+                }
+                return;
+            }
+
+            for (var i = 0; i < from; i++)
+            {
+                Draw(placed[i], line.Baseline, isLastOnLine: false);
+            }
+
+            var style = placed[from];
+            var rows = Wrap(line, style, limit);
+            for (var row = 0; row < Math.Min(rows.Count, line.RowCount); row++)
+            {
+                Draw(style with { Text = rows[row], X = RowStart(line, style, row) }, RowBaseline(line, row), isLastOnLine: true);
+            }
+        }
+
+        public LineMeasurement Measure(ResumeLine line, double limit)
+        {
+            var placed = Place(line.Runs);
+
+            if (line.Replacement is null || line.EditableFrom is not { } from)
+            {
+                var ends = new[] { placed.Count == 0 ? 0 : EndOf(placed[^1]) }
+                    .Concat(line.Continuations.Select(c => Place(c.Runs) is { Count: > 0 } runs ? EndOf(runs[^1]) : 0));
+                return new LineMeasurement(line.Id, ends.Max(), limit, line.RowCount, line.RowCount);
+            }
+
+            var style = placed[from];
+            var rows = Wrap(line, style, limit);
+            var end = rows.Count == 0
+                ? style.X
+                : rows.Select((text, row) => EndOf(style with { Text = text, X = RowStart(line, style, row) })).Max();
+            return new LineMeasurement(line.Id, end, limit, Math.Max(rows.Count, 1), line.RowCount);
+        }
+
+        /// <summary>
+        /// Breaks replacement words across rows the way a word processor would:
+        /// as many words per row as fit before the margin. Returns every row the
+        /// words need, even beyond the ones available, so the caller can tell.
+        /// </summary>
+        private List<string> Wrap(ResumeLine line, ResumeRun style, double limit)
+        {
+            var words = (line.Replacement ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var rows = new List<string>();
+            var current = "";
+
+            foreach (var word in words)
+            {
+                var candidate = current.Length == 0 ? word : $"{current} {word}";
+                if (current.Length == 0
+                    || EndOf(style with { Text = candidate, X = RowStart(line, style, rows.Count) }) <= limit + FitTolerance)
+                {
+                    current = candidate;
+                }
+                else
+                {
+                    rows.Add(current);
+                    current = word;
+                }
+            }
+
+            if (current.Length > 0)
+            {
+                rows.Add(current);
+            }
+
+            return rows;
+        }
+
+        /// <summary>Where a row's words start: the first row after its fixed prefix, later rows at their own indent.</summary>
+        public static double RowStart(ResumeLine line, ResumeRun firstRowStyle, int row) =>
+            row == 0 || line.Continuations.Count == 0
+                ? firstRowStyle.X
+                : line.Continuations[Math.Min(row, line.Continuations.Count) - 1].Runs.FirstOrDefault()?.X ?? firstRowStyle.X;
+
+        private static double RowBaseline(ResumeLine line, int row) =>
+            row == 0 ? line.Baseline : line.Continuations[row - 1].Baseline;
+
+        private void DrawRow(List<ResumeRun> runs, double baseline)
+        {
+            for (var i = 0; i < runs.Count; i++)
+            {
+                Draw(runs[i], baseline, isLastOnLine: i == runs.Count - 1);
+            }
         }
 
         /// <summary>
@@ -156,10 +297,10 @@ public class ResumeRenderer : IResumeRenderer
         /// fraction wider than some Times renderings, and without this a date
         /// after a bold title can touch the title's last word.
         /// </summary>
-        public List<ResumeRun> Place(ResumeLine line)
+        public List<ResumeRun> Place(List<ResumeRun> runs)
         {
-            var placed = new List<ResumeRun>(line.Runs.Count);
-            foreach (var run in line.Runs)
+            var placed = new List<ResumeRun>(runs.Count);
+            foreach (var run in runs)
             {
                 if (placed.Count > 0)
                 {
@@ -188,6 +329,15 @@ public class ResumeRenderer : IResumeRenderer
             var spaceWidth = EndOf(run with { Text = "x x", X = 0 }) - EndOf(run with { Text = "xx", X = 0 });
             return trimmed + spaceWidth;
         }
+
+        public void DrawRule(ResumeRule rule)
+        {
+            Page.SetStrokeColor(Channel(rule.Color.R), Channel(rule.Color.G), Channel(rule.Color.B));
+            Page.DrawLine(new PdfPoint(rule.X1, rule.Y1), new PdfPoint(rule.X2, rule.Y2), rule.Width);
+            Page.ResetColor();
+        }
+
+        private static byte Channel(double value) => (byte)Math.Round(Math.Clamp(value, 0, 1) * 255);
 
         public double EndOf(ResumeRun run)
         {

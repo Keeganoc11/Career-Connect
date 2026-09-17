@@ -144,7 +144,7 @@ public class ResumeLayoutTests
 
         var budget = _renderer.CharacterBudget(layout, layout.Find(TestResumes.BulletLine)!);
 
-        Assert.InRange(budget, 70, 110);
+        Assert.InRange(budget.Max, 70, 110);
     }
 
     [Theory]
