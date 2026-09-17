@@ -105,6 +105,9 @@ public class ApplicationPrepRunner(
         var best = baseLayout;
         var bestScore = baseline;
         var reasons = new Dictionary<string, string>();
+        // Which lines belong to an entry swapped in from extra facts, keyed to
+        // its label, so the swap is reported — and put back — as one piece.
+        var swaps = new Dictionary<string, string>();
         var budgets = guard.CharacterBudgets(baseLayout);
 
         // Asking for changes builds on the version you already have, rather
@@ -120,6 +123,10 @@ public class ApplicationPrepRunner(
             foreach (var change in await PreviousChangesAsync(run, cancellationToken))
             {
                 reasons[change.LineId] = change.Reason;
+                if (change.Swap is not null)
+                {
+                    swaps[change.LineId] = change.Swap;
+                }
             }
             await AddStepAsync(run, "Scored your current tailored version", bestScore.Summary, bestScore.Score, cancellationToken);
         }
@@ -132,9 +139,12 @@ public class ApplicationPrepRunner(
             cancellationToken.ThrowIfCancellationRequested();
             run.Iterations++;
 
-            var proposals = await tailorer.TailorAsync(
-                best, baseLayout, budgets, bestScore, context, run.Instructions, cancellationToken);
-            var guarded = await guard.ApplyAsync(best, baseLayout, proposals, context, cancellationToken);
+            // Swaps are decided up front — or when you ask for one — so later
+            // passes polish the entry that's there instead of trading entries back and forth.
+            var proposal = await tailorer.TailorAsync(
+                best, baseLayout, budgets, bestScore, context, run.Instructions,
+                allowSwaps: run.Iterations == 1 || honoringRequest, cancellationToken);
+            var guarded = await guard.ApplyAsync(best, baseLayout, proposal.Edits, context, proposal.Swaps, cancellationToken);
 
             if (guarded.Applied.Count == 0)
             {
@@ -151,9 +161,12 @@ public class ApplicationPrepRunner(
 
             var candidate = await ScoreAsync(run, resume.Id, guarded.Layout, usedTailoredResume: true, cancellationToken);
 
+            var swapped = guarded.Swaps.Count == 0
+                ? ""
+                : $", swapped in {string.Join(" and ", guarded.Swaps.Select(sw => sw.Label.Split(" → ")[^1]))},";
             await AddStepAsync(
                 run,
-                $"Rewrote {Lines(guarded.Applied.Count)} and re-scored (pass {run.Iterations})",
+                $"Rewrote {Lines(guarded.Applied.Count)}{swapped} and re-scored (pass {run.Iterations})",
                 guarded.Rejected.Count == 0
                     ? candidate.Summary
                     : $"{candidate.Summary} Discarded: {Summarize(guarded.Rejected)}",
@@ -184,6 +197,14 @@ public class ApplicationPrepRunner(
                 {
                     reasons[edit.LineId] = edit.Reason;
                 }
+                foreach (var swap in guarded.Swaps)
+                {
+                    foreach (var lineId in swap.LineIds)
+                    {
+                        reasons[lineId] = swap.Reason;
+                        swaps[lineId] = swap.Label;
+                    }
+                }
             }
 
             // The next pass would rewrite this rewrite, so a pass that didn't
@@ -203,7 +224,7 @@ public class ApplicationPrepRunner(
             }
         }
 
-        var changes = Diff(baseLayout, best, reasons);
+        var changes = Diff(baseLayout, best, reasons, swaps);
 
         if (changes.Count > 0)
         {
@@ -226,9 +247,20 @@ public class ApplicationPrepRunner(
             {
                 foreach (var claim in unsupported)
                 {
-                    best = best.WithLine(baseLayout.Find(claim.LineId)!);
+                    // One unsupported line in a swapped entry takes the whole
+                    // swap back out — an original bullet under the new heading
+                    // would be a new kind of wrong.
+                    var lineIds = swaps.TryGetValue(claim.LineId, out var label)
+                        ? swaps.Where(pair => pair.Value == label).Select(pair => pair.Key).ToList()
+                        : [claim.LineId];
+                    foreach (var lineId in lineIds)
+                    {
+                        best = best.WithLine(baseLayout.Find(lineId)!);
+                        swaps.Remove(lineId);
+                    }
                 }
-                changes = Diff(baseLayout, best, reasons);
+                best = best.WithLinksFrom(baseLayout);
+                changes = Diff(baseLayout, best, reasons, swaps);
 
                 bestScore = await ScoreAsync(run, resume.Id, best, usedTailoredResume: changes.Count > 0, cancellationToken);
                 await AddStepAsync(
@@ -301,25 +333,35 @@ public class ApplicationPrepRunner(
         return analysis;
     }
 
+    /// <summary>
+    /// Every line that reads differently from the base resume. Bullets and
+    /// skills compare just their words; a swapped heading compares the whole line.
+    /// </summary>
     private static List<ResumeChange> Diff(
-        ResumeLayout baseLayout, ResumeLayout tailored, IReadOnlyDictionary<string, string> reasons) =>
+        ResumeLayout baseLayout,
+        ResumeLayout tailored,
+        IReadOnlyDictionary<string, string> reasons,
+        IReadOnlyDictionary<string, string> swaps) =>
         baseLayout.Lines
-            .Where(l => l.Editable)
-            .Select(l => (Before: l.EditableText!, After: tailored.Find(l.Id)?.EditableText ?? l.EditableText!, l.Id))
-            .Where(x => x.Before != x.After)
-            .Select(x => new ResumeChange(x.Id, x.Before, x.After, reasons.GetValueOrDefault(x.Id, "")))
+            .Select(original => (Original: original, Now: tailored.Find(original.Id)))
+            .Where(pair => pair.Now is not null && pair.Original.Text != pair.Now.Text)
+            .Select(pair => pair.Original.EditableText is { } before && pair.Now!.EditableText is { } after
+                ? new ResumeChange(pair.Original.Id, before, after, reasons.GetValueOrDefault(pair.Original.Id, ""), swaps.GetValueOrDefault(pair.Original.Id))
+                : new ResumeChange(pair.Original.Id, pair.Original.Text, pair.Now!.Text, reasons.GetValueOrDefault(pair.Original.Id, ""), swaps.GetValueOrDefault(pair.Original.Id)))
             .ToList();
 
     /// <summary>
-    /// Whether a stored tailored version still matches the base resume line for
-    /// line, so it can be built on. A newly uploaded base resume won't.
+    /// Whether a stored tailored version was built from this base resume, so it
+    /// can be built on: the same lines in the same places. Text is allowed to
+    /// differ — that's what tailoring changed, swapped entries included.
     /// </summary>
     private static bool SameShape(ResumeLayout baseLayout, ResumeLayout tailored) =>
         baseLayout.Lines.Count == tailored.Lines.Count
         && baseLayout.Lines.Zip(tailored.Lines).All(pair =>
             pair.First.Id == pair.Second.Id
-            && pair.First.EditableFrom == pair.Second.EditableFrom
-            && (pair.First.Editable || pair.First.Text == pair.Second.Text));
+            && pair.First.Kind == pair.Second.Kind
+            && pair.First.RowCount == pair.Second.RowCount
+            && Math.Abs(pair.First.Baseline - pair.Second.Baseline) < 0.01);
 
     private async Task<List<ResumeChange>> PreviousChangesAsync(PrepRun run, CancellationToken cancellationToken)
     {

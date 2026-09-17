@@ -51,6 +51,27 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
         which the posting lists first").
         """;
 
+    private const string SwapRules = """
+
+        ENTRY SWAPS. When entry slots are listed, you may also fill a slot with a different job or
+        project described in the extra facts — the candidate can't fit everything on one page, and
+        the extra facts hold what didn't make it.
+
+        - Swap only when the entry from the extra facts is clearly more relevant to this posting than
+          the one on the page. When in doubt, don't swap. Never swap in something already on the page.
+        - A project goes into a project slot, a job into a work slot.
+        - Fill every heading field and every bullet of the slot, no more and no fewer. Each heading
+          field keeps its role: the bold field is the name or job title, the dates field is dates,
+          the rest are company and location, laid out the way the slot's current fields are.
+        - Take names, job titles, companies, places and dates exactly as the extra facts state them.
+          Match the slot's date style (e.g. "Aug 2026 - Present" if the slot abbreviates months).
+          If the extra facts don't give dates for an entry, it can't be swapped in.
+        - A job swapped into a work slot must keep the work section newest-first.
+        - Bullets must be supported by that entry's own facts only, within each bullet's character
+          range. The honesty rules above apply in full.
+        - Give a one-sentence reason addressed to the candidate for the swap.
+        """;
+
     private const string FitPrompt = """
         Each resume line below doesn't fill its space on the page exactly. A
         line marked TOO LONG runs past its rows: tighten it, cutting filler
@@ -64,15 +85,17 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
 
     public bool IsConfigured => caller.IsConfigured;
 
-    public async Task<List<LineEdit>> TailorAsync(
+    public async Task<TailorProposal> TailorAsync(
         ResumeLayout current,
         ResumeLayout baseLayout,
         IReadOnlyDictionary<string, CharacterRange> characterBudgets,
         MatchAnalysis latestScore,
         TailorContext context,
         string? instructions = null,
+        bool allowSwaps = false,
         CancellationToken cancellationToken = default)
     {
+        allowSwaps = allowSwaps && !string.IsNullOrWhiteSpace(context.ExtraFacts);
         var resume = new StringBuilder();
         foreach (var line in current.Lines.Where(l => l.Kind != ResumeLineKind.Blank))
         {
@@ -95,6 +118,28 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
             if (original is not null && original != line.EditableText)
             {
                 resume.AppendLine($"    ORIGINAL: {original}");
+            }
+        }
+
+        var slots = new StringBuilder();
+        if (allowSwaps)
+        {
+            foreach (var entry in ResumeEntries.Find(current))
+            {
+                slots.AppendLine($"SLOT {entry.SlotId} ({(entry.Section == EntrySection.Work ? "work" : "project")})");
+                foreach (var id in entry.HeaderLineIds)
+                {
+                    var fields = ResumeEntries.Fields(current.Find(id)!)
+                        .Select(f => $"[{(f.Bold ? "bold" : ResumeEntries.DateRange(f.Text) is not null ? "dates" : f.Italic ? "italic" : "plain")}] \"{f.Text.Trim()}\"");
+                    slots.AppendLine($"  heading {id}: {string.Join(" | ", fields)}");
+                }
+                foreach (var id in entry.BulletLineIds)
+                {
+                    var line = current.Find(id)!;
+                    var budget = characterBudgets.GetValueOrDefault(id, new CharacterRange(1, 80));
+                    var size = line.RowCount == 1 ? $"max {budget.Max} chars" : $"{line.RowCount} rows: {budget.Min}-{budget.Max} chars";
+                    slots.AppendLine($"  bullet {id} ({size}): {line.Text}");
+                }
             }
         }
 
@@ -127,24 +172,54 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
             {string.Join("\n", latestScore.Suggestions.Select(s => $"- {s.Section}: {s.Guidance}"))}
             </latest_score>
 
+            {(allowSwaps ? $"<entry_slots>\n{slots}</entry_slots>\n" : "")}
             {request}
-            Rewrite the editable lines that would make this resume a stronger, honest fit for this posting.
+            Rewrite the editable lines that would make this resume a stronger, honest fit for this posting{(allowSwaps ? ", and swap in an entry from the extra facts only where it's clearly the better fit" : "")}.
             """;
 
-        var schema = SchemaObject(new
+        var edits = SchemaArray(SchemaObject(new
         {
-            edits = SchemaArray(SchemaObject(new
+            line_id = SchemaString("Id of an editable line, e.g. \"L15\"."),
+            text = SchemaString("The complete new editable text for that line, within its character range."),
+            reason = SchemaString("One sentence, addressed to the candidate, on why this change helps."),
+        }, "line_id", "text", "reason"), "Replacements for the lines worth changing. Omit lines to leave them as they are.");
+
+        var schema = allowSwaps
+            ? SchemaObject(new
             {
-                line_id = SchemaString("Id of an editable line, e.g. \"L15\"."),
-                text = SchemaString("The complete new editable text for that line, within its character range."),
-                reason = SchemaString("One sentence, addressed to the candidate, on why this change helps."),
-            }, "line_id", "text", "reason"), "Replacements for the lines worth changing. Omit lines to leave them as they are."),
-        }, "edits");
+                edits,
+                swaps = SchemaArray(SchemaObject(new
+                {
+                    slot_id = SchemaString("The slot being filled, e.g. \"S33\"."),
+                    source_name = SchemaString("The swapped-in entry's name as the extra facts give it."),
+                    headings = SchemaArray(SchemaObject(new
+                    {
+                        line_id = SchemaString("A heading line id of that slot."),
+                        fields = SchemaArray(SchemaString("One field's new text."), "New text for each field of that heading line, in order."),
+                    }, "line_id", "fields"), "Every heading line of the slot, in order."),
+                    bullets = SchemaArray(SchemaObject(new
+                    {
+                        line_id = SchemaString("A bullet line id of that slot."),
+                        text = SchemaString("The new bullet, within its character range."),
+                    }, "line_id", "text"), "Every bullet of the slot, in order."),
+                    reason = SchemaString("One sentence, addressed to the candidate, on why this entry fits the posting better."),
+                }, "slot_id", "source_name", "headings", "bullets", "reason"), "Entry swaps. Usually empty."),
+            }, "edits", "swaps")
+            : SchemaObject(new { edits }, "edits");
 
-        var payload = await caller.CallAsync<EditsPayload>(
-            "rewriting your resume", SystemPrompt, userPrompt, schema, cancellationToken);
+        var payload = await caller.CallAsync<ProposalPayload>(
+            "rewriting your resume", allowSwaps ? SystemPrompt + SwapRules : SystemPrompt, userPrompt, schema, cancellationToken);
 
-        return payload.Edits.Select(e => new LineEdit(e.LineId, e.Text, e.Reason)).ToList();
+        return new TailorProposal(
+            payload.Edits.Select(e => new LineEdit(e.LineId, e.Text, e.Reason)).ToList(),
+            (payload.Swaps ?? [])
+                .Select(sw => new EntrySwapProposal(
+                    sw.SlotId,
+                    sw.SourceName,
+                    sw.Headings.Select(h => new HeaderLineFields(h.LineId, h.Fields)).ToList(),
+                    sw.Bullets.Select(b => new LineEdit(b.LineId, b.Text, sw.Reason)).ToList(),
+                    sw.Reason))
+                .ToList());
     }
 
     public async Task<List<LineEdit>> FitAsync(
@@ -182,6 +257,15 @@ public class ClaudeResumeLayoutTailorer(ClaudeStructuredCaller caller) : IResume
     }
 
     private sealed record EditsPayload(List<EditPayload> Edits);
+
+    private sealed record ProposalPayload(List<EditPayload> Edits, List<SwapPayload>? Swaps);
+
+    private sealed record SwapPayload(
+        string SlotId, string SourceName, List<HeadingPayload> Headings, List<SwapBulletPayload> Bullets, string Reason);
+
+    private sealed record HeadingPayload(string LineId, List<string> Fields);
+
+    private sealed record SwapBulletPayload(string LineId, string Text);
 
     private sealed record EditPayload(string LineId, string Text, string Reason);
 }

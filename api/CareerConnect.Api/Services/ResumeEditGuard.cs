@@ -7,7 +7,11 @@ public record AppliedEdit(string LineId, string Text, string Reason);
 
 public record RejectedEdit(string LineId, string Text, string Why);
 
-public record GuardedEdits(ResumeLayout Layout, List<AppliedEdit> Applied, List<RejectedEdit> Rejected);
+/// <summary>An entry swap that passed every check. Its bullets are also listed in <see cref="GuardedEdits.Applied"/>.</summary>
+public record AppliedSwap(string SlotId, string Label, string Reason, List<string> LineIds);
+
+public record GuardedEdits(
+    ResumeLayout Layout, List<AppliedEdit> Applied, List<RejectedEdit> Rejected, List<AppliedSwap> Swaps);
 
 public interface IResumeEditGuard
 {
@@ -21,6 +25,7 @@ public interface IResumeEditGuard
         ResumeLayout baseLayout,
         IReadOnlyList<LineEdit> edits,
         TailorContext context,
+        IReadOnlyList<EntrySwapProposal>? swaps = null,
         CancellationToken cancellationToken = default);
 
     IReadOnlyDictionary<string, CharacterRange> CharacterBudgets(ResumeLayout baseLayout);
@@ -33,7 +38,8 @@ public partial class ResumeEditGuard(IResumeRenderer renderer, IResumeLayoutTail
 
     public IReadOnlyDictionary<string, CharacterRange> CharacterBudgets(ResumeLayout baseLayout) =>
         baseLayout.Lines
-            .Where(l => l.Editable)
+            // Locked bullets too (a link line): an entry swap can fill them.
+            .Where(l => l.Editable || l.Kind == ResumeLineKind.Bullet)
             .ToDictionary(l => l.Id, l => renderer.CharacterBudget(baseLayout, l));
 
     public async Task<GuardedEdits> ApplyAsync(
@@ -41,6 +47,7 @@ public partial class ResumeEditGuard(IResumeRenderer renderer, IResumeLayoutTail
         ResumeLayout baseLayout,
         IReadOnlyList<LineEdit> edits,
         TailorContext context,
+        IReadOnlyList<EntrySwapProposal>? swaps = null,
         CancellationToken cancellationToken = default)
     {
         var evidence = $"{baseLayout.ToPlainText()}\n{context.ExtraFacts}";
@@ -49,8 +56,35 @@ public partial class ResumeEditGuard(IResumeRenderer renderer, IResumeLayoutTail
         var layout = current;
         var applied = new Dictionary<string, AppliedEdit>();
         var rejected = new List<RejectedEdit>();
+        var appliedSwaps = new List<AppliedSwap>();
+        var swapper = new EntrySwapper(renderer);
 
-        foreach (var edit in edits.GroupBy(e => e.LineId).Select(g => g.Last()))
+        // Swaps first: a swapped entry replaces every line in its slot, so any
+        // line edit proposed for those lines is moot.
+        foreach (var swap in (swaps ?? []).GroupBy(s => s.SlotId).Select(g => g.Last()))
+        {
+            var outcome = swapper.Apply(layout, swap, context.ExtraFacts,
+                text => CheckText(Clean(text), allowedNumbers));
+
+            if (outcome is SwapOutcome.Rejected no)
+            {
+                rejected.Add(new RejectedEdit(swap.SlotId, swap.SourceName, $"Swap rejected: {no.Why}"));
+                continue;
+            }
+
+            var yes = (SwapOutcome.Applied)outcome;
+            layout = yes.Layout;
+            var reason = swap.Reason.Trim();
+            appliedSwaps.Add(new AppliedSwap(swap.SlotId, yes.Label, reason, yes.LineIds));
+            foreach (var id in yes.BulletLineIds)
+            {
+                applied[id] = new AppliedEdit(id, layout.Find(id)!.EditableText!, reason);
+            }
+        }
+
+        var swappedLines = appliedSwaps.SelectMany(s => s.LineIds).ToHashSet();
+
+        foreach (var edit in edits.Where(e => !swappedLines.Contains(e.LineId)).GroupBy(e => e.LineId).Select(g => g.Last()))
         {
             var line = current.Find(edit.LineId);
             var text = Clean(edit.Text);
@@ -92,19 +126,42 @@ public partial class ResumeEditGuard(IResumeRenderer renderer, IResumeLayoutTail
             {
                 foreach (var (id, measurement) in misfits)
                 {
+                    if (!applied.ContainsKey(id))
+                    {
+                        continue; // Already put back with the rest of its swap.
+                    }
+
+                    // A swapped entry goes back whole — one old bullet under a
+                    // new heading would be worse than no swap at all.
+                    var swap = appliedSwaps.FirstOrDefault(s => s.LineIds.Contains(id));
+                    var lineIds = swap?.LineIds ?? [id];
+                    foreach (var lineId in lineIds)
+                    {
+                        layout = layout.WithLine(current.Find(lineId)!);
+                        applied.Remove(lineId);
+                    }
+
                     var rows = current.Find(id)!.RowCount;
-                    layout = layout.WithLine(current.Find(id)!);
-                    rejected.Add(new RejectedEdit(id, applied[id].Text, measurement is { LeavesGap: true }
+                    var why = measurement is { LeavesGap: true }
                         ? $"Too short to fill its {rows} lines."
-                        : rows == 1 ? "Didn't fit on one line." : $"Didn't fit in its {rows} lines."));
-                    applied.Remove(id);
+                        : rows == 1 ? "Didn't fit on one line." : $"Didn't fit in its {rows} lines.";
+
+                    if (swap is not null)
+                    {
+                        appliedSwaps.Remove(swap);
+                        rejected.Add(new RejectedEdit(swap.SlotId, swap.Label, $"Swap undone: a bullet {why.ToLowerInvariant()}"));
+                    }
+                    else
+                    {
+                        rejected.Add(new RejectedEdit(id, measurement is null ? "" : layout.Find(id)!.Text, why));
+                    }
                 }
                 break;
             }
 
             var refitted = await tailorer.FitAsync(
                 misfits
-                    .Select(m => Target(m.Id, layout.Find(m.Id)!, budgets, attempt, tooShort: m.Measurement is { LeavesGap: true }))
+                    .Select(m => Target(m.Id, layout, budgets, attempt, tooShort: m.Measurement is { LeavesGap: true }))
                     .ToList(),
                 context,
                 cancellationToken);
@@ -112,17 +169,19 @@ public partial class ResumeEditGuard(IResumeRenderer renderer, IResumeLayoutTail
             foreach (var edit in refitted.Where(e => applied.ContainsKey(e.LineId)))
             {
                 var text = Clean(edit.Text);
-                if (Check(current.Find(edit.LineId), text, allowedNumbers) is not null)
+                // Checked against the line as it is now: a swapped-in bullet may
+                // sit where a locked link line used to be.
+                if (Check(layout.Find(edit.LineId), text, allowedNumbers) is not null)
                 {
                     continue; // Keep the previous version; it's retried or reverted next round.
                 }
 
-                layout = layout.WithLine(current.Find(edit.LineId)!.WithEditableText(text));
+                layout = layout.WithLine(layout.Find(edit.LineId)!.WithEditableText(text));
                 applied[edit.LineId] = applied[edit.LineId] with { Text = text };
             }
         }
 
-        return new GuardedEdits(layout, applied.Values.ToList(), rejected);
+        return new GuardedEdits(layout.WithLinksFrom(baseLayout), applied.Values.ToList(), rejected, appliedSwaps);
     }
 
     private LineMeasurement? Measure(ResumeLayout layout, string lineId)
@@ -141,10 +200,13 @@ public partial class ResumeEditGuard(IResumeRenderer renderer, IResumeLayoutTail
     /// The range to ask for. Each retry narrows it from the side that just
     /// failed, since the estimate just proved optimistic in that direction.
     /// </summary>
-    private static LineToFit Target(
-        string id, ResumeLine line, IReadOnlyDictionary<string, CharacterRange> budgets, int attempt, bool tooShort)
+    private LineToFit Target(
+        string id, ResumeLayout layout, IReadOnlyDictionary<string, CharacterRange> budgets, int attempt, bool tooShort)
     {
-        var range = budgets.GetValueOrDefault(id, new CharacterRange(1, 80));
+        var line = layout.Find(id)!;
+        var range = budgets.TryGetValue(id, out var known) && known.Max > 0
+            ? known
+            : renderer.CharacterBudget(layout, line);
         var step = 4 * (attempt + 1);
         var min = tooShort ? Math.Min(range.Min + step, range.Max - 1) : range.Min;
         var max = tooShort ? range.Max : Math.Max(range.Max - step, Math.Max(min + 1, 20));
@@ -158,6 +220,12 @@ public partial class ResumeEditGuard(IResumeRenderer renderer, IResumeLayoutTail
             return "Not an editable line.";
         }
 
+        return CheckText(text, allowedNumbers);
+    }
+
+    /// <summary>The rules for words themselves, whichever line they're going onto.</summary>
+    private static string? CheckText(string text, HashSet<string> allowedNumbers)
+    {
         if (text.Length < 3)
         {
             return "Empty rewrite.";

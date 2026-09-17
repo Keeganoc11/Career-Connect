@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { ArrowRight, Download } from 'lucide-react'
 import { api } from '../api/client'
-import type { PrepRun } from '../api/types'
+import type { PrepRun, ResumeChange } from '../api/types'
 import { FIX_LABELS, SEVERITY_LABELS, VERDICT_LABELS } from '../lib/tailoring'
 import { useAsyncAction } from '../lib/useAsyncAction'
 import { Badge, Banner, Button, Card } from './ui'
@@ -136,16 +136,49 @@ export function TailoringReview({ applicationId, run, afterVerdict }: Props) {
           </p>
         ) : (
           <ul className="space-y-2">
-            {run.changes.map((c) => (
-              <li key={c.lineId} className="rounded-control border border-line px-3.5 py-3 text-sm">
-                <p className="text-fg-subtle line-through">{c.before}</p>
-                <p className="mt-0.5 text-fg">{c.after}</p>
-                {c.reason && <p className="mt-1.5 text-xs text-fg-muted">{c.reason}</p>}
-              </li>
-            ))}
+            {groupChanges(run.changes).map((group) =>
+              group.swap ? (
+                <li key={group.changes[0].lineId} className="rounded-control border border-line px-3.5 py-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge emphasis="accent">Swapped in</Badge>
+                    <p className="font-medium text-fg">{group.swap}</p>
+                  </div>
+                  {group.changes[0].reason && (
+                    <p className="mt-1.5 text-xs text-fg-muted">{group.changes[0].reason}</p>
+                  )}
+                  <ul className="mt-2 space-y-1 border-l-2 border-line pl-3 text-fg">
+                    {group.changes.map((c) => (
+                      <li key={c.lineId}>{c.after}</li>
+                    ))}
+                  </ul>
+                </li>
+              ) : (
+                group.changes.map((c) => (
+                  <li key={c.lineId} className="rounded-control border border-line px-3.5 py-3 text-sm">
+                    <p className="text-fg-subtle line-through">{c.before}</p>
+                    <p className="mt-0.5 text-fg">{c.after}</p>
+                    {c.reason && <p className="mt-1.5 text-xs text-fg-muted">{c.reason}</p>}
+                  </li>
+                ))
+              ),
+            )}
           </ul>
         )}
       </Section>
     </div>
   )
+}
+
+/**
+ * Every line of a swapped entry arrives as its own change; they read as one
+ * swap — the new heading and bullets together, under one reason.
+ */
+function groupChanges(changes: ResumeChange[]): { swap: string | null; changes: ResumeChange[] }[] {
+  const groups: { swap: string | null; changes: ResumeChange[] }[] = []
+  for (const change of changes) {
+    const group = change.swap ? groups.find((g) => g.swap === change.swap) : undefined
+    if (group) group.changes.push(change)
+    else groups.push({ swap: change.swap ?? null, changes: [change] })
+  }
+  return groups
 }

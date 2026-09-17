@@ -31,6 +31,12 @@ public class ClaudeResumeClaimsAuditor(ClaudeStructuredCaller caller) : IResumeC
         original skills section counts as shown. Be strict about substance,
         not pedantic about phrasing.
 
+        Some changed lines are marked SWAPPED IN: a whole job or project from
+        the extra facts replaced one on the page. Those lines — the heading
+        and every bullet — must be supported by that entry in the extra facts
+        (its name, title, company, dates, and what it says was done there).
+        Something true of a different job or project doesn't count.
+
         Return only the lines that fail, each with a short reason naming the
         unsupported claim. An empty list is the right answer when every line
         holds up.
@@ -57,7 +63,7 @@ public class ClaudeResumeClaimsAuditor(ClaudeStructuredCaller caller) : IResumeC
             </extra_facts>
 
             <changed_lines>
-            {string.Join("\n\n", changes.Select(c => $"{c.LineId}\n  ORIGINAL: {c.Before}\n  NEW: {c.After}"))}
+            {string.Join("\n\n", changes.Select(c => $"{c.LineId}{(c.Swap is null ? "" : $" [SWAPPED IN: {c.Swap}]")}\n  ORIGINAL: {c.Before}\n  NEW: {c.After}"))}
             </changed_lines>
             """;
 

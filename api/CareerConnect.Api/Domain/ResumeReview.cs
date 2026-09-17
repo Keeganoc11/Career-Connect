@@ -58,7 +58,12 @@ public class ResumeReview
 }
 
 /// <summary>One line tailoring changed, and why — the "what changed" list on the result.</summary>
-public record ResumeChange(string LineId, string Before, string After, string Reason);
+/// <param name="Swap">
+/// Set on every line of an entry swapped in from extra facts, e.g.
+/// "Drinks Around The World IOS Application → Career Connect Application",
+/// so the result can show the swap as one change.
+/// </param>
+public record ResumeChange(string LineId, string Before, string After, string Reason, string? Swap = null);
 
 public static class FitVerdicts
 {

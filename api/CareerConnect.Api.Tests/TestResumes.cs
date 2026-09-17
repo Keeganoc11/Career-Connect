@@ -112,4 +112,76 @@ public static class TestResumes
             ],
         };
     }
+
+    public const string SwapFacts = """
+        PROJECT: Career Connect Application
+        Dates: August 2026 - Present
+        Facts:
+        - Built a full-stack job tracker with ASP.NET Core, EF Core, PostgreSQL and React
+        - Wrote 257 xUnit tests and deployed it on Railway with Docker
+
+        JOB: Software Engineering Intern
+        Company: Acme | Springfield, IL
+        Dates: September 2025 - December 2025
+        Facts:
+        - Built internal REST APIs in C#
+        - Wrote integration tests for the billing service
+
+        JOB: Web Developer
+        Company: Initech | Springfield, IL
+        Dates: May 2027 - June 2027
+        Facts:
+        - Built React dashboards
+        """;
+
+    /// <summary>
+    /// Two jobs with right-aligned dates under a company line, then a project
+    /// whose dates follow its title and whose last bullet is a blue link.
+    /// </summary>
+    public static ResumeLayout SwapLayout()
+    {
+        var renderer = new CareerConnect.Api.Services.ResumeRenderer();
+        var page = new ResumeLayout { PageWidth = 612, PageHeight = 792, RightLimit = 540, Lines = [] };
+        var blue = new ResumeColor(0.0667, 0.3333, 0.8);
+
+        ResumeRun Serif(string text, double x, bool bold = false, bool italic = false, ResumeColor? color = null) =>
+            new(text, ResumeFontFamily.Serif, bold, italic, 11, x, color);
+
+        ResumeRun RightAligned(string text) =>
+            Serif(text, 540 - renderer.TextWidth(page, Serif(text, 0, italic: true)), italic: true);
+
+        var y = 700.0;
+        var n = 0;
+        var lines = new List<ResumeLine>();
+        void Add(ResumeLineKind kind, List<ResumeRun> runs, int? editableFrom = null)
+        {
+            lines.Add(new ResumeLine { Id = $"L{++n:00}", Kind = kind, Baseline = y, Runs = runs, EditableFrom = editableFrom });
+            y -= 13;
+        }
+        ResumeRun Dot() => new("●  ", ResumeFontFamily.Sans, false, false, 11, 90);
+
+        Add(ResumeLineKind.Heading, [Serif("WORK EXPERIENCE", 72, bold: true)]);                               // L01
+        Add(ResumeLineKind.Text, [Serif("Data Center Technician ", 72, bold: true), RightAligned("January 2026 - July 2026")]); // L02
+        Add(ResumeLineKind.Text, [Serif("Velia LLC | St Louis MO", 72)]);                                      // L03
+        Add(ResumeLineKind.Bullet, [Dot(), Serif("Supported production Linux systems through provisioning and imaging", 108)], 1); // L04
+        Add(ResumeLineKind.Bullet, [Dot(), Serif("Tracked incidents in Jira with engineers across sprint workflows", 108)], 1);    // L05
+        Add(ResumeLineKind.Text, [Serif("IT Intern ", 72, bold: true), RightAligned("June 2025 - August 2025")]);              // L06
+        Add(ResumeLineKind.Text, [Serif("Kasco LLC | St. Louis, MO", 72)]);                                    // L07
+        Add(ResumeLineKind.Bullet, [Dot(), Serif("Assisted in migrating internal tools toward modern .NET frameworks", 108)], 1); // L08
+        Add(ResumeLineKind.Bullet, [Dot(), Serif("Shadowed engineers working with Java tools and Google Cloud", 108)], 1);      // L09
+        Add(ResumeLineKind.Heading, [Serif("PROJECTS", 72, bold: true)]);                                      // L10
+        Add(ResumeLineKind.Text, [Serif("Drinks Around The World IOS Application ", 72, bold: true), Serif("Nov 2025 - Present", 280.5, italic: true)]); // L11
+        Add(ResumeLineKind.Bullet, [Dot(), Serif("Built and shipped a production iOS app solo in Swift and SwiftUI", 108)], 1);   // L12
+        Add(ResumeLineKind.Bullet, [Dot(), Serif("https://apps.apple.com/us/app/drinks", 108, color: blue)]);  // L13 (locked link)
+
+        return new ResumeLayout
+        {
+            PageWidth = 612,
+            PageHeight = 792,
+            RightLimit = 540,
+            Lines = lines,
+            Links = [new ResumeLink("https://apps.apple.com/us/app/drinks", 108, lines[12].Baseline - 3, 190, 12.7)],
+            Rules = [new ResumeRule(108, lines[12].Baseline - 1.5, 298, lines[12].Baseline - 1.5, 0.54, blue)],
+        };
+    }
 }

@@ -8,6 +8,19 @@ public record TailorContext(string JobDescription, string RoleTitle, string Comp
 /// <summary>A proposed replacement for one line's editable words.</summary>
 public record LineEdit(string LineId, string Text, string Reason);
 
+/// <summary>New words for each field of one heading line — title, dates, company — in order.</summary>
+public record HeaderLineFields(string LineId, List<string> Fields);
+
+/// <summary>
+/// A proposal to fill an entry slot with a different job or project from the
+/// candidate's extra facts: every heading field and every bullet.
+/// </summary>
+/// <param name="SourceName">The entry's name as the extra facts give it, for "what changed".</param>
+public record EntrySwapProposal(
+    string SlotId, string SourceName, List<HeaderLineFields> HeaderLines, List<LineEdit> Bullets, string Reason);
+
+public record TailorProposal(List<LineEdit> Edits, List<EntrySwapProposal> Swaps);
+
 /// <summary>A rewrite that didn't fill its space exactly, handed back to be adjusted.</summary>
 /// <param name="TooShort">True when it left a row empty rather than running over.</param>
 public record LineToFit(string LineId, string Text, int MinCharacters, int MaxCharacters, int Rows, bool TooShort);
@@ -33,13 +46,14 @@ public interface IResumeLayoutTailorer
     /// steered by the latest score. Proposals only — every one is checked
     /// before it touches the resume.
     /// </summary>
-    Task<List<LineEdit>> TailorAsync(
+    Task<TailorProposal> TailorAsync(
         ResumeLayout current,
         ResumeLayout baseLayout,
         IReadOnlyDictionary<string, CharacterRange> characterBudgets,
         MatchAnalysis latestScore,
         TailorContext context,
         string? instructions = null,
+        bool allowSwaps = false,
         CancellationToken cancellationToken = default);
 
     Task<List<LineEdit>> FitAsync(

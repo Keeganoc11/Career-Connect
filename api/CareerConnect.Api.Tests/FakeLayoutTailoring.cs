@@ -16,6 +16,11 @@ public sealed class FakeResumeLayoutTailorer : IResumeLayoutTailorer
     /// </summary>
     public Queue<List<LineEdit>> Proposals { get; } = new();
 
+    /// <summary>Entry swaps to propose, one list per call. Empty once drained.</summary>
+    public Queue<List<EntrySwapProposal>> SwapProposals { get; } = new();
+
+    public List<bool> AllowSwapsByCall { get; } = [];
+
     /// <summary>What FitAsync answers with; by default, text cut to the maximum.</summary>
     public Func<LineToFit, string>? Fit { get; set; }
 
@@ -27,15 +32,17 @@ public sealed class FakeResumeLayoutTailorer : IResumeLayoutTailorer
     public static readonly string[] PassPhrases =
         ["Designed an inventory API", "Delivered an inventory REST API", "Shipped a production inventory API", "Owned an inventory API"];
 
-    public Task<List<LineEdit>> TailorAsync(
+    public Task<TailorProposal> TailorAsync(
         ResumeLayout current,
         ResumeLayout baseLayout,
         IReadOnlyDictionary<string, CharacterRange> characterBudgets,
         MatchAnalysis latestScore,
         TailorContext context,
         string? instructions = null,
+        bool allowSwaps = false,
         CancellationToken cancellationToken = default)
     {
+        AllowSwapsByCall.Add(allowSwaps);
         CallCount++;
         LastInstructions = instructions;
         LastCurrent = current;
@@ -44,9 +51,11 @@ public sealed class FakeResumeLayoutTailorer : IResumeLayoutTailorer
             throw ThrowOnTailor;
         }
 
-        return Task.FromResult(Proposals.Count > 0
+        var edits = Proposals.Count > 0
             ? Proposals.Dequeue()
-            : [new LineEdit(TestResumes.BulletLine, PassPhrases[(CallCount - 1) % PassPhrases.Length], $"Reason {CallCount}")]);
+            : [new LineEdit(TestResumes.BulletLine, PassPhrases[(CallCount - 1) % PassPhrases.Length], $"Reason {CallCount}")];
+        var swaps = SwapProposals.Count > 0 ? SwapProposals.Dequeue() : [];
+        return Task.FromResult(new TailorProposal(edits, swaps));
     }
 
     public Task<List<LineEdit>> FitAsync(

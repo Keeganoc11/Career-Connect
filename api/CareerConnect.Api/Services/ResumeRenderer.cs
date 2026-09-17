@@ -39,6 +39,12 @@ public interface IResumeRenderer
     /// The real check is always <see cref="MeasureLine"/>.
     /// </summary>
     CharacterRange CharacterBudget(ResumeLayout layout, ResumeLine line);
+
+    /// <summary>The drawn width of a run's text, without trailing spaces.</summary>
+    double TextWidth(ResumeLayout layout, ResumeRun run);
+
+    /// <summary>The width of one space in a run's font.</summary>
+    double SpaceWidth(ResumeLayout layout, ResumeRun run);
 }
 
 public record CharacterRange(int Min, int Max);
@@ -94,8 +100,8 @@ public class ResumeRenderer : IResumeRenderer
         }
 
         return layout.Lines
-            .Where(l => l.Edited && l.EditableFrom is not null)
-            .Any(l => new[] { (l.Baseline, X: l.Runs[l.EditableFrom!.Value].X) }
+            .Where(l => l.Edited && l.Runs.Count > 0)
+            .Any(l => new[] { (l.Baseline, X: l.Runs[l.EditableFrom ?? 0].X) }
                 .Concat(l.Continuations.Select(c => (c.Baseline, X: c.Runs.FirstOrDefault()?.X ?? 0)))
                 .Any(row => rule.Y1 <= row.Baseline + 0.5 && rule.Y1 >= row.Baseline - 4 && Math.Max(rule.X1, rule.X2) > row.X));
     }
@@ -116,8 +122,35 @@ public class ResumeRenderer : IResumeRenderer
         return session.Measure(line, layout.RightLimit);
     }
 
+    public double TextWidth(ResumeLayout layout, ResumeRun run)
+    {
+        using var session = new Session(layout.PageWidth, layout.PageHeight);
+        return session.EndOf(run with { X = 0 });
+    }
+
+    public double SpaceWidth(ResumeLayout layout, ResumeRun run)
+    {
+        using var session = new Session(layout.PageWidth, layout.PageHeight);
+        return session.EndOf(run with { Text = "x x", X = 0 }) - session.EndOf(run with { Text = "xx", X = 0 });
+    }
+
     public CharacterRange CharacterBudget(ResumeLayout layout, ResumeLine line)
     {
+        // A locked bullet (a link line) is measured like any bullet: an entry
+        // swap can put words there.
+        if (line.EditableFrom is null && line.Kind == ResumeLineKind.Bullet && line.Runs.Count > 1)
+        {
+            line = new ResumeLine
+            {
+                Id = line.Id,
+                Kind = line.Kind,
+                Baseline = line.Baseline,
+                Runs = line.Runs,
+                Continuations = line.Continuations,
+                EditableFrom = 1,
+            };
+        }
+
         if (line.EditableFrom is not { } from || line.EditableText is not { Length: > 0 } text)
         {
             return new CharacterRange(0, 0);

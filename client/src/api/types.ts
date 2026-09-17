@@ -139,6 +139,8 @@ export interface ResumeChange {
   before: string
   after: string
   reason: string
+  /** Set on every line of an entry swapped in from extra facts: "Old title → New title". */
+  swap: string | null
 }
 
 export interface ApplicationInput {

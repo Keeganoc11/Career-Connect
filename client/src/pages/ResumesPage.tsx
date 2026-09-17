@@ -23,6 +23,18 @@ import {
 } from '../components/ui'
 
 const MIN_CONTENT = 50
+
+const EXTRA_FACTS_EXAMPLE = `PROJECT: Career Connect Application
+Dates: August 2026 – Present
+Facts:
+- Built a full-stack job tracker with ASP.NET Core, EF Core, PostgreSQL and React
+- Wrote 257 xUnit tests; deployed on Railway with Docker
+
+JOB: Software Engineering Intern
+Company: Acme | St. Louis, MO
+Dates: May 2024 – August 2024
+Facts:
+- Built internal REST APIs in C#`
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 export function ResumesPage({ dataVersion }: { dataVersion: number }) {
@@ -324,7 +336,7 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
                 {hasLayout && (
                   <Field
                     label="Extra facts about you"
-                    hint="Everything true that doesn't fit on the page — every project, the tools, what you built, the scale. No length limit. Tailoring can draw on these; it never invents anything beyond them."
+                    hint="Everything true that doesn't fit on the page. No length limit. Tailoring rewrites with these, and can swap a whole project or job onto the page when it fits a posting better — write those as entries with a name and dates, like the example. It never invents anything beyond what's here."
                   >
                     {(props) => (
                       <Textarea
@@ -332,7 +344,7 @@ export function ResumesPage({ dataVersion }: { dataVersion: number }) {
                         rows={12}
                         value={extraFacts}
                         onChange={(e) => setExtraFacts(e.target.value)}
-                        placeholder="e.g. Used Docker to run Postgres locally for Career Connect. Wrote 60+ xUnit tests for it."
+                        placeholder={EXTRA_FACTS_EXAMPLE}
                       />
                     )}
                   </Field>

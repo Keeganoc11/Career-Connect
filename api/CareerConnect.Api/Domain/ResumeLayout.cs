@@ -180,6 +180,32 @@ public class ResumeLayout
 
     public ResumeLine? Find(string id) => Lines.FirstOrDefault(l => l.Id == id);
 
+    /// <summary>
+    /// The base resume's clickable areas that still sit over the same words.
+    /// A link over text that tailoring replaced — an App Store URL bullet
+    /// swapped out for another project's bullet — would point somewhere the
+    /// words no longer say, so it goes.
+    /// </summary>
+    public ResumeLayout WithLinksFrom(ResumeLayout baseLayout)
+    {
+        var changed = Lines
+            .Where(l => baseLayout.Find(l.Id)?.Text != l.Text)
+            .SelectMany(l => new[] { l.Baseline }.Concat(l.Continuations.Select(c => c.Baseline)))
+            .ToList();
+
+        return new ResumeLayout
+        {
+            PageWidth = PageWidth,
+            PageHeight = PageHeight,
+            RightLimit = RightLimit,
+            Rules = Rules,
+            Lines = Lines,
+            Links = baseLayout.Links
+                .Where(link => !changed.Any(baseline => link.Y <= baseline + 10 && link.Y + link.Height >= baseline - 3))
+                .ToList(),
+        };
+    }
+
     public ResumeLayout WithLine(ResumeLine replacement) => new()
     {
         PageWidth = PageWidth,
