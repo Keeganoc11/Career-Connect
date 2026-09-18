@@ -132,10 +132,11 @@ async function handleResponse<T>(response: Response, authenticated: boolean): Pr
     throw new ApiError(response.status, message, body)
   }
 
-  if (response.status === 204) {
-    return undefined as T
-  }
-  return (await response.json()) as T
+  // Any success can arrive with no body, not just 204 — forgot-password
+  // answers 202 Accepted with nothing in it. Parsing that as JSON threw, and
+  // the page reported a sent email as "can't reach the server".
+  const text = await response.text()
+  return (text ? JSON.parse(text) : undefined) as T
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
