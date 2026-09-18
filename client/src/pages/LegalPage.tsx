@@ -15,7 +15,7 @@ interface LegalDocument {
 }
 
 /** Both documents were last reviewed on this date; shown at the top of the page. */
-const LAST_UPDATED = 'September 17, 2026'
+const LAST_UPDATED = 'September 18, 2026'
 
 const PRIVACY: LegalDocument = {
   title: 'Privacy Policy',
@@ -130,6 +130,12 @@ const TERMS: LegalDocument = {
       heading: 'Liability',
       paragraphs: [
         'To the extent the law allows: the service is provided without warranties, and the operator is not liable for lost opportunities, lost data, or any indirect damages arising from using it. Nothing here limits liability that cannot legally be limited.',
+      ],
+    },
+    {
+      heading: 'Governing law',
+      paragraphs: [
+        'These terms are governed by the laws of the State of Missouri, without regard to its conflict-of-law rules.',
       ],
     },
     {
