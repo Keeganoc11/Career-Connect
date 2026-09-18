@@ -227,6 +227,36 @@ The app ships as a single Docker image (`Dockerfile` at the repo root) — the A
 
 Redeploys are safe to run repeatedly — migrations only apply what's new, and the seeder skips creating the user if it already exists.
 
+## Database backups
+
+Two layers, both inside the Railway project:
+
+- **Point-in-time recovery** on the Postgres service — continuous, lets you
+  restore to any moment. On the Hobby plan a restore to a recent point can
+  exceed the 5 GB volume limit, which is why the second layer exists.
+- **A nightly dump** — the `db-backup` service, built from `ops/db-backup/`.
+  At 08:00 UTC it runs `pg_dump`, **restores that dump into a throwaway
+  Postgres inside its own container** and compares every table's row count
+  against production, and only then uploads it to the `career-connect-backups`
+  bucket under `daily/`. Copies older than 30 days are pruned. So every file in
+  the bucket has already been restored once.
+
+The service's schedule and restart policy (`0 8 * * *`, never restart) are set
+on the Railway service itself, not in a file: `railway up` of a subdirectory
+ignored a `railway.json` there, so they were set through Railway's API. To
+change the job, edit `ops/db-backup/` and redeploy it:
+
+```bash
+railway up ops/db-backup --path-as-root --service db-backup --ci
+```
+
+The job reads `DATABASE_URL` (referenced from the Postgres service), the
+bucket's S3 credentials, and optionally `RETENTION_DAYS`.
+
+To restore one: download the `.dump` from the bucket, then
+`pg_restore --no-owner --no-privileges -d <empty database> <file>` with a
+version 18 client.
+
 ## The link preview image
 
 `client/public/og.png` is what LinkedIn, Slack and iMessage show when someone
