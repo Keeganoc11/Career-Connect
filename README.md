@@ -227,6 +227,21 @@ The app ships as a single Docker image (`Dockerfile` at the repo root) — the A
 
 Redeploys are safe to run repeatedly — migrations only apply what's new, and the seeder skips creating the user if it already exists.
 
+## The link preview image
+
+`client/public/og.png` is what LinkedIn, Slack and iMessage show when someone
+pastes the site's URL. It is generated from `client/public/og-source.svg`
+rather than drawn by hand, so the wording can be edited as text:
+
+```bash
+qlmanage -t -s 1200 -o /tmp/og client/public/og-source.svg
+sips -c 630 1200 /tmp/og/og-source.svg.png --out client/public/og.png
+```
+
+The source SVG is a 1200x1200 square with the design in the middle 630px band,
+because `qlmanage` renders into a square and crops anything outside it; the
+`sips` step crops that band back out to the 1200x630 the crawlers expect.
+
 ## Design decisions
 
 - **Append-only `StatusChange` history** instead of just a status column — an audit trail now, and the landing zone for Phase 4's automated detection (`Source` enum) without backfilling.

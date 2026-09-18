@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+  <rect width="1200" height="1200" fill="#ffffff"/>
+  <rect x="0" y="285" width="1200" height="8" fill="#7c3aed"/>
+
+  <g transform="translate(80,351)">
+    <rect width="56" height="56" rx="14" fill="#7c3aed"/>
+    <path d="M38.5 19.6a12.25 12.25 0 1 0 0 16.8" fill="none" stroke="#ffffff" stroke-width="5.25" stroke-linecap="round"/>
+    <circle cx="42" cy="28" r="3.5" fill="#ffffff"/>
+  </g>
+  <text x="152" y="388" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="30" font-weight="600" fill="#0f172a">Career Connect</text>
+
+  <text x="80" y="560" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="66" font-weight="700" fill="#0f172a">Stop rewriting your resume</text>
+  <text x="80" y="640" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="66" font-weight="700" fill="#0f172a">for every job</text>
+
+  <text x="80" y="710" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="29" fill="#475569">Track every application. Tailor every resume. Know where you stand.</text>
+
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="24" fill="#475569">
+    <text x="80" y="800">Free job tracker</text>
+    <text x="278" y="800" fill="#94a3b8">·</text>
+    <text x="306" y="800">AI resume tailoring</text>
+    <text x="532" y="800" fill="#94a3b8">·</text>
+    <text x="560" y="800">Interview prep</text>
+  </g>
+  <text x="80" y="857" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="26" font-weight="600" fill="#7c3aed">careerconnectapp.com</text>
+</svg>
